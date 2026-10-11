@@ -223,7 +223,35 @@ Notes:
 - `AUTH_SECRET` (Step 3) and the D1 binding survive every Git deploy — nothing to re-enter.
 - **Database migrations are NOT run by CI** — they're deliberate manual steps. Whenever `src/db/schema.ts` changes: `npm run db:generate`, commit, then `npm run db:migrate:remote` **before or right after** the deploy.
 
-**Alternative — GitHub Actions:** `.github/workflows/deploy.yml` is included; add `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` as GitHub repository secrets and pushes to `main` deploy via Actions instead. Use one mechanism or the other, not both.
+**Alternative — GitHub Actions instead of Workers Builds:** deploy can run from GitHub's own CI (useful if you want deploys visible next to your code checks, or don't want to grant Cloudflare repo access). Recreate `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to Cloudflare
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx opennextjs-cloudflare build
+      - run: npx opennextjs-cloudflare deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+Then create the token and add the secrets:
+
+1. **dash.cloudflare.com → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"** template → create → copy the token once
+2. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret** → `CLOUDFLARE_API_TOKEN` = the token
+3. Same place → `CLOUDFLARE_ACCOUNT_ID` = your account id (shown by `npx wrangler whoami`)
+
+> **Pick ONE deploy mechanism.** If the workflow file exists but the secrets are not set, every push shows a red ✗ in the Actions tab with *"necessary to set a CLOUDFLARE_API_TOKEN environment variable"* — while the dashboard deploy may still have succeeded. That workflow was removed from this repo on purpose once Workers Builds was connected.
 
 ### APP_TIMEZONE (optional)
 
