@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    Ordix brand icon: rounded square, "O" box glyph.
+    Pure geometry so it scales from favicon to 512px splash.
+  -->
+  <rect width="512" height="512" rx="112" fill="#2f54c8"/>
+  <!-- Outer box stroke = the "O" -->
+  <rect x="128" y="128" width="256" height="256" rx="48"
+        fill="none" stroke="#ffffff" stroke-width="40"/>
+  <!-- Inner dot = the shipped unit -->
+  <circle cx="256" cy="256" r="48" fill="#ffffff"/>
+</svg>

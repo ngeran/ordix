@@ -1,0 +1,32 @@
+{
+  // ============================================================
+  // Ordix — Cloudflare Worker configuration (via @opennextjs/cloudflare)
+  // ------------------------------------------------------------
+  // Create the D1 database once with:
+  //   npx wrangler d1 create ordix-db
+  // then paste its id into `database_id` below (or set the
+  // ORDIX_D1_DATABASE_ID env var and run scripts/setup-d1.sh).
+  // ============================================================
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ordix",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ordix-db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      // Drizzle-generated SQL files live here; applied with:
+      //   npm run db:migrate:local   /   npm run db:migrate:remote
+      "migrations_dir": "drizzle"
+    }
+  ]
+}

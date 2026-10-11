@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# OpenNext / Cloudflare build output
+.open-next/
+
+# Wrangler local state (D1 SQLite files, miniflare caches)
+.wrangler/
+
+# Environment files — never commit secrets
+.env
+.env.local
+.env*.local
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Plans / local scratch
+.claude/settings.local.json
+
+# Session working notes (Claude plan ledger)
+.plans/

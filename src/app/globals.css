@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+/* ============================================================
+   SECTION: Dark-mode variant
+   ------------------------------------------------------------
+   Tailwind v4 defaults to media-query dark mode; Ordix uses a
+   `.dark` class on <html> so the toggle can override the OS
+   preference (warehouse tablets are often permanently dark).
+   ============================================================ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================
+   SECTION: Design tokens — light theme (default)
+   ------------------------------------------------------------
+   Industrial-clean palette: strong blue primary, neutral gray
+   surfaces, semantic colors for stock/order states.
+   ============================================================ */
+
+:root {
+  --primary: #2f54c8;
+  --primary-strong: #24409c;
+  --on-primary: #ffffff;
+  --primary-soft: #e3e9fc;
+
+  --background: #f5f6f8;
+  --on-background: #171a20;
+
+  --surface: #ffffff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f2f4f7;
+  --surface-container: #eaeef2;
+  --surface-container-high: #e2e7ee;
+  --surface-container-highest: #d8dee7;
+  --on-surface: #171a20;
+  --on-surface-muted: #5b6472;
+
+  --border: #d5dae2;
+  --outline: #8d97a6;
+
+  --success: #15803d;
+  --success-soft: #dcf3e3;
+  --warning: #b45309;
+  --warning-soft: #fdeecd;
+  --error: #b3261e;
+  --error-soft: #fcd9d6;
+  --info: #0369a1;
+  --info-soft: #dbeefe;
+}
+
+/* ============================================================
+   SECTION: Design tokens — dark theme
+   ============================================================ */
+
+.dark {
+  --primary: #8ba3f5;
+  --primary-strong: #a7b9f8;
+  --on-primary: #0d1c4f;
+  --primary-soft: #1d2a55;
+
+  --background: #0e1116;
+  --on-background: #e4e8ef;
+
+  --surface: #151a22;
+  --surface-container-lowest: #10141b;
+  --surface-container-low: #1a2029;
+  --surface-container: #202834;
+  --surface-container-high: #262f3d;
+  --surface-container-highest: #2e3848;
+  --on-surface: #e4e8ef;
+  --on-surface-muted: #97a1b2;
+
+  --border: #2b3442;
+  --outline: #6b7686;
+
+  --success: #4ade80;
+  --success-soft: #123822;
+  --warning: #fbbf24;
+  --warning-soft: #3d2c05;
+  --error: #f87171;
+  --error-soft: #451a17;
+  --info: #7dd3fc;
+  --info-soft: #0c3350;
+}
+
+/* ============================================================
+   SECTION: Tailwind theme mapping
+   ------------------------------------------------------------
+   Exposes every token as a Tailwind utility (bg-surface,
+   text-on-surface-muted, border-border, …) and registers the
+   brand font family.
+   ============================================================ */
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-on-primary: var(--on-primary);
+  --color-primary-soft: var(--primary-soft);
+
+  --color-background: var(--background);
+  --color-on-background: var(--on-background);
+
+  --color-surface: var(--surface);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-muted: var(--on-surface-muted);
+
+  --color-border: var(--border);
+  --color-outline: var(--outline);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-error: var(--error);
+  --color-error-soft: var(--error-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-card: 0 1px 3px rgb(9 12 20 / 0.08), 0 1px 2px rgb(9 12 20 / 0.04);
+  --shadow-pop: 0 8px 30px rgb(9 12 20 / 0.16);
+}
+
+/* ============================================================
+   SECTION: Base styles
+   ============================================================ */
+
+html {
+  /* Solid backdrop avoids white flash behind rounded corners in
+     standalone PWA mode. */
+  background: var(--background);
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--on-background);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Visible keyboard focus everywhere, without ugly outlines on tap. */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Hide scrollbars on horizontal category strips (touch scroll). */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Thin styled scrollbars for panels. */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--surface-container-highest);
+  border-radius: 8px;
+}
+
+/* ============================================================
+   SECTION: Animations (toasts, dialogs, boards)
+   ============================================================ */
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.18s ease-out;
+}
+
+.animate-fade-scale-in {
+  animation: fade-scale-in 0.15s ease-out;
+}
+
+/* Native <dialog> backdrop */
+dialog::backdrop {
+  background: rgb(9 12 20 / 0.5);
+}

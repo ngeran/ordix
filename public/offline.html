@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ordix — Offline</title>
+    <style>
+      /* Self-contained: this page must render with zero network. */
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f5f6f8;
+        color: #171a20;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+        padding: 24px;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0e1116; color: #e4e8ef; }
+      }
+      .card {
+        max-width: 380px;
+        background: #ffffff;
+        border: 1px solid #d5dae2;
+        border-radius: 20px;
+        padding: 40px 28px;
+        box-shadow: 0 8px 30px rgba(9, 12, 20, 0.12);
+      }
+      @media (prefers-color-scheme: dark) {
+        .card { background: #151a22; border-color: #2b3442; }
+      }
+      .mark {
+        display: inline-flex;
+        width: 56px;
+        height: 56px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 16px;
+        background: #2f54c8;
+        color: #fff;
+        font-size: 26px;
+        font-weight: 900;
+        margin-bottom: 16px;
+      }
+      h1 { font-size: 20px; margin: 0 0 8px; }
+      p { font-size: 14px; line-height: 1.5; opacity: 0.75; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <span class="mark">O</span>
+      <h1>You're offline</h1>
+      <p>
+        Ordix can't reach the server right now.<br />
+        Orders and stock will sync again automatically once the
+        connection is back — just pull to refresh or retry.
+      </p>
+    </main>
+  </body>
+</html>
