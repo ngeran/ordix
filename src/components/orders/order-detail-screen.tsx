@@ -249,18 +249,18 @@ export function OrderDetailScreen({
                         aria-label={`${t("detail.packing")}: ${item.name}`}
                         aria-pressed={item.isChecked}
                         className={cn(
-                          "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
+                          "mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 transition-colors",
                           item.isChecked
                             ? "border-success bg-success text-white"
                             : "border-border bg-surface hover:border-primary"
                         )}
                       >
-                        {item.isChecked && <CheckCircle2 className="h-5 w-5" />}
+                        {item.isChecked && <CheckCircle2 className="h-7 w-7" />}
                       </button>
                     ) : (
                       <span
                         aria-hidden
-                        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-container text-sm font-bold"
+                        className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-container text-base font-bold"
                       >
                         {item.quantity}
                       </span>
@@ -364,22 +364,23 @@ export function OrderDetailScreen({
         <div className="space-y-4">
           {!isTerminal && (
             <Card className="space-y-2 p-4">
-              {/* Primary: advance to the next main-flow stage */}
+              {/* Primary: advance to the next main-flow stage — the one
+                  obvious action, extra large for first-time users */}
               {nextStage && nextStage !== "dispatched" && (
                 <Button
-                  size="lg"
-                  className="w-full"
+                  size="xl"
+                  className="w-full text-lg"
                   disabled={busy}
                   onClick={() => transition(nextStage)}
                 >
-                  <ArrowRight className="h-5 w-5" />
+                  <ArrowRight className="h-6 w-6" />
                   {t("detail.advance", { status: STATUS_META[nextStage][locale] })}
                 </Button>
               )}
               {/* Dispatch gets its own dialog (courier + tracking) */}
               {nextStage === "dispatched" && (
-                <Button size="lg" className="w-full" disabled={busy} onClick={() => setDispatchOpen(true)}>
-                  <Send className="h-5 w-5" />
+                <Button size="xl" className="w-full text-lg" disabled={busy} onClick={() => setDispatchOpen(true)}>
+                  <Send className="h-6 w-6" />
                   {t("detail.advance", { status: STATUS_META.dispatched[locale] })}
                 </Button>
               )}

@@ -25,6 +25,7 @@ Runs on phones, tablets and desktops (any orientation), fully installable as a *
 - 📲 **PWA** — manifest + service worker + offline shell, installable
 - 📺 **Warehouse wall display** — `/display` turns any iPad/Android tablet into a read-only status board (QUEUE / IN PROGRESS / PREPARED / SHIPPED), auto-refreshing, readable across the aisle
 - 🔌 **Offline-first** — works without internet: reads from service-worker cache, writes queue in IndexedDB and sync to Cloudflare automatically on reconnect
+- 👵 **Designed for first-time users** — a giant-tile Home launcher (`/home`, the default landing page), 18px base type scaling the whole app, 48px+ touch targets, plain YES/NO confirmations, and automatic Greek on Greek-set devices
 
 ---
 

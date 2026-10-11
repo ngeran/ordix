@@ -166,7 +166,7 @@ export function PosScreen() {
         onClick={() => setCartOpen(true)}
         disabled={lineCount === 0 && !appendOrderId}
         className={cn(
-          "fixed bottom-20 right-4 z-30 flex items-center gap-3 rounded-2xl bg-primary px-5 py-4 font-bold text-on-primary shadow-pop transition-opacity lg:bottom-6 xl:hidden",
+          "fixed bottom-20 right-4 z-30 flex items-center gap-3 rounded-2xl bg-primary px-6 py-5 text-lg font-bold text-on-primary shadow-pop transition-opacity lg:bottom-6 xl:hidden",
           lineCount === 0 && !appendOrderId && "pointer-events-none opacity-0"
         )}
         aria-label={`${lineCount} ${t("common.items")}`}

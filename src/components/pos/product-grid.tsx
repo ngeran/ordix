@@ -165,7 +165,7 @@ export function ProductGrid({
           />
         ) : (
           <ul
-            className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5"
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4"
             aria-label={t("nav.products")}
           >
             {products.map((product) => {
@@ -177,13 +177,13 @@ export function ProductGrid({
                     onClick={() => handleAdd(product)}
                     disabled={isOutOfStock}
                     className={cn(
-                      "flex h-full w-full flex-col rounded-2xl border bg-surface p-3 text-left shadow-card transition-all",
-                      "hover:border-primary hover:shadow-pop active:scale-[0.98] disabled:opacity-50 disabled:hover:border-border",
+                      "flex h-full w-full flex-col rounded-2xl border-2 border-border bg-surface p-4 text-left shadow-card transition-all",
+                      "hover:border-primary hover:shadow-pop active:scale-[0.97] disabled:opacity-50 disabled:hover:border-border",
                       low && !isOutOfStock && "border-warning/60"
                     )}
                   >
                     {/* Image or placeholder */}
-                    <div className="mb-2 flex h-24 w-full items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
+                    <div className="mb-3 flex h-24 w-full items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
                       {product.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -198,30 +198,30 @@ export function ProductGrid({
                     </div>
 
                     {/* Name + part number */}
-                    <span className="line-clamp-2 text-sm font-semibold leading-snug">
+                    <span className="line-clamp-2 text-base font-semibold leading-snug">
                       {product.name}
                     </span>
-                    <span className="mt-0.5 font-mono text-xs text-on-surface-muted">
+                    <span className="mt-1 font-mono text-sm text-on-surface-muted">
                       {product.partNumber}
                     </span>
 
                     {/* Price + stock row */}
-                    <div className="mt-auto flex items-center justify-between gap-2 pt-2">
-                      <span className="font-bold text-primary">
+                    <div className="mt-auto flex items-center justify-between gap-2 pt-3">
+                      <span className="text-lg font-bold text-primary">
                         {formatMoney(product.priceCents, locale)}
                       </span>
                       {product.stockQuantity === 0 ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-high px-2 py-0.5 text-[11px] font-semibold text-on-surface-muted">
-                          <PackageX className="h-3 w-3" aria-hidden />
+                        <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-high px-2.5 py-1 text-xs font-semibold text-on-surface-muted">
+                          <PackageX className="h-4 w-4" aria-hidden />
                           {t("pos.outOfStock")}
                         </span>
                       ) : low ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning">
-                          <AlertTriangle className="h-3 w-3" aria-hidden />
+                        <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2.5 py-1 text-xs font-semibold text-warning">
+                          <AlertTriangle className="h-4 w-4" aria-hidden />
                           {t("pos.stockLeft", { count: product.stockQuantity })}
                         </span>
                       ) : (
-                        <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-semibold text-on-surface-muted">
+                        <span className="rounded-full bg-surface-container px-2.5 py-1 text-xs font-semibold text-on-surface-muted">
                           {t("pos.stockLeft", { count: product.stockQuantity })}
                         </span>
                       )}

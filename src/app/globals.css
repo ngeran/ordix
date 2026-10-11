@@ -132,6 +132,13 @@
    ============================================================ */
 
 html {
+  /* Deliberately larger than the 16px default: most Ordix users
+     are 50+ and/or first-time computer users. Every Tailwind
+     size is rem-based, so this single line scales the entire
+     app up (~12%) — text, buttons, spacing — with no other
+     changes needed. */
+  font-size: 18px;
+
   /* Solid backdrop avoids white flash behind rounded corners in
      standalone PWA mode. */
   background: var(--background);

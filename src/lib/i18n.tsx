@@ -54,6 +54,7 @@ const en = {
   "common.never": "Never",
 
   // -- Navigation --
+  "nav.home": "Home",
   "nav.order": "Order",
   "nav.orders": "Orders",
   "nav.prep": "Prep",
@@ -203,6 +204,22 @@ const en = {
   "stock.settingsSaved": "Settings saved",
   "stock.lowStockAlert": "{count} products at or below minimum",
 
+  // -- Home launcher (giant tiles for first-time users) --
+  "home.title": "What would you like to do?",
+  "home.subtitle": "Tap a picture to start",
+  "home.newOrder": "New order",
+  "home.newOrderHint": "Pick products and place an order",
+  "home.orders": "Orders",
+  "home.ordersHint": "Follow and update existing orders",
+  "home.prep": "Preparation",
+  "home.prepHint": "Orders waiting to be prepared",
+  "home.display": "Wall board",
+  "home.displayHint": "Big screen view for the warehouse",
+
+  // -- Big plain confirmations --
+  "pos.confirmYes": "YES, place the order",
+  "pos.confirmAppendYes": "YES, add the round",
+
   // -- Errors --
   "error.generic": "Something went wrong",
   "error.network": "Network error — check your connection",
@@ -260,6 +277,7 @@ const el: Record<MessageKey, string> = {
   "common.never": "Ποτέ",
 
   // -- Navigation --
+  "nav.home": "Αρχική",
   "nav.order": "Παραγγελία",
   "nav.orders": "Παραγγελίες",
   "nav.prep": "Προετοιμασία",
@@ -409,6 +427,22 @@ const el: Record<MessageKey, string> = {
   "stock.settingsSaved": "Οι ρυθμίσεις αποθηκεύτηκαν",
   "stock.lowStockAlert": "{count} προϊόντα στο ή κάτω από το ελάχιστο",
 
+  // -- Home launcher (giant tiles for first-time users) --
+  "home.title": "Τι θέλετε να κάνετε;",
+  "home.subtitle": "Πατήστε μια εικόνα για να ξεκινήσετε",
+  "home.newOrder": "Νέα παραγγελία",
+  "home.newOrderHint": "Επιλέξτε προϊόντα και καταχωρήστε παραγγελία",
+  "home.orders": "Παραγγελίες",
+  "home.ordersHint": "Παρακολούθηση και ενημέρωση παραγγελιών",
+  "home.prep": "Προετοιμασία",
+  "home.prepHint": "Παραγγελίες που περιμένουν προετοιμασία",
+  "home.display": "Πίνακας αποθήκης",
+  "home.displayHint": "Μεγάλη προβολή για την οθόνη αποθήκης",
+
+  // -- Big plain confirmations --
+  "pos.confirmYes": "ΝΑΙ, ΚΑΤΑΧΩΡΗΣΗ",
+  "pos.confirmAppendYes": "ΝΑΙ, ΠΡΟΣΘΗΚΗ",
+
   // -- Errors --
   "error.generic": "Κάτι πήγε στραβά",
   "error.network": "Σφάλμα δικτύου — ελέγξτε τη σύνδεση",
@@ -450,7 +484,26 @@ export const useLocaleStore = create<LocaleState>()(
       locale: "en",
       setLocale: (locale) => set({ locale }),
     }),
-    { name: "ordix-locale" }
+    {
+      name: "ordix-locale",
+      onRehydrateStorage: () => (state) => {
+        // First run on this device (nothing saved yet): follow the
+        // device language — a Greek-set tablet starts in Greek with
+        // zero taps. Explicit choice always wins afterwards.
+        if (state && state.locale === "en" && typeof navigator !== "undefined") {
+          try {
+            if (!localStorage.getItem("ordix-locale")) {
+              const browser = (navigator.language ?? "en").toLowerCase();
+              if (browser.startsWith("el")) {
+                useLocaleStore.getState().setLocale("el");
+              }
+            }
+          } catch {
+            // storage unavailable — keep default
+          }
+        }
+      },
+    }
   )
 );
 

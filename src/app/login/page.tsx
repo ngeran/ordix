@@ -80,6 +80,7 @@ function LoginForm() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             aria-invalid={Boolean(error)}
+            className="h-14 text-lg"
           />
         </Field>
 
@@ -92,6 +93,7 @@ function LoginForm() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             aria-invalid={Boolean(error)}
+            className="h-14 text-lg"
           />
         </Field>
 
@@ -103,11 +105,11 @@ function LoginForm() {
 
         <Button
           type="submit"
-          size="lg"
+          size="xl"
           loading={submitting}
-          className="w-full"
+          className="w-full text-lg"
         >
-          <LogIn className="h-5 w-5" />
+          <LogIn className="h-6 w-6" />
           {t("login.submit")}
         </Button>
       </form>

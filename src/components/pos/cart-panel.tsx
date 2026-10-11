@@ -132,30 +132,30 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
                   </div>
 
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    {/* Quantity stepper (48px touch targets) */}
-                    <div className="flex items-center gap-1">
+                    {/* Quantity stepper — full 48px targets with big glyphs */}
+                    <div className="flex items-center gap-2">
                       <Button
                         variant="secondary"
-                        size="iconSm"
+                        size="icon"
                         onClick={() => setQuantity(item.productId, item.quantity - 1)}
                         aria-label={`${t("common.remove")} 1`}
                       >
-                        <Minus className="h-4 w-4" />
+                        <Minus className="h-6 w-6" />
                       </Button>
-                      <span className="w-12 text-center font-bold" aria-live="polite">
+                      <span className="w-14 text-center text-lg font-bold" aria-live="polite">
                         {item.quantity}
                       </span>
                       <Button
                         variant="secondary"
-                        size="iconSm"
+                        size="icon"
                         onClick={() => setQuantity(item.productId, item.quantity + 1)}
                         aria-label={`${t("common.add")} 1`}
                       >
-                        <Plus className="h-4 w-4" />
+                        <Plus className="h-6 w-6" />
                       </Button>
                     </div>
 
-                    <span className="font-bold">
+                    <span className="text-lg font-bold">
                       {formatMoney(item.unitPriceCents * item.quantity, locale)}
                     </span>
                   </div>
@@ -239,29 +239,31 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
         )}
       </Dialog>
 
-      {/* -- Submit confirmation -- */}
+      {/* -- Submit confirmation: one giant YES, one plain NO —
+          impossible to misread, impossible to mis-tap -- */}
       <Dialog
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         title={confirmTitle}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              loading={placing}
-              onClick={() => {
-                setConfirmOpen(false);
-                onSubmit();
-              }}
-            >
-              {t("common.confirm")}
-            </Button>
-          </>
-        }
       >
-        <p className="text-sm text-on-surface-muted">{confirmBody}</p>
+        <p className="text-base text-on-surface-muted">{confirmBody}</p>
+        <div className="mt-5 space-y-3">
+          <Button
+            variant="success"
+            size="xl"
+            className="w-full text-xl"
+            loading={placing}
+            onClick={() => {
+              setConfirmOpen(false);
+              onSubmit();
+            }}
+          >
+            {appendOrderId ? t("pos.confirmAppendYes") : t("pos.confirmYes")}
+          </Button>
+          <Button variant="ghost" size="lg" className="w-full" onClick={() => setConfirmOpen(false)}>
+            {t("common.cancel")}
+          </Button>
+        </div>
       </Dialog>
     </div>
   );
