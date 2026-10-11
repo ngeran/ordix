@@ -97,41 +97,127 @@ Open **http://localhost:3000** — or **http://<your-ip>:3000** from any device 
 
 ---
 
-## Deploy to Cloudflare
+## Deploying to Cloudflare — complete guide
 
-### One-time setup
+Ordix is a Cloudflare **Worker** (not a Pages project) — one Worker serves the Next.js server code *and* the static assets, with the D1 database attached as a binding. Every step below was verified end-to-end; follow them in order.
+
+### Step 0 — Prerequisites
+
+- A **GitHub repository** for this code (private is fine)
+- A **Cloudflare account** — the free tier runs Ordix (see "Costs" below)
+- **Node 20+** locally
+- Cloudflare credentials locally: `npx wrangler login` (opens the browser once)
+
+### Step 1 — Push the code to GitHub
 
 ```bash
-# 1. Authenticate
-npx wrangler login
+# If you use the GitHub CLI (easiest):
+gh auth login                # one-time: GitHub.com → HTTPS → browser login
+gh repo create ordix --private --source=. --push
 
-# 2. Create the D1 database
-npx wrangler d1 create ordix-db
-# → copy the printed database_id into wrangler.jsonc
-
-# 3. Apply the schema to production
-npm run db:migrate:remote
-
-# 4. Set the auth secret for the Worker
-npx wrangler secret put AUTH_SECRET
-# (also set APP_TIMEZONE if you want another business-day timezone:
-#  add it to "vars" in wrangler.jsonc)
-
-# 5. First deploy
-npm run deploy
+# Or manually: create an empty repo on github.com, then:
+git remote add origin git@github.com:<you>/ordix.git
+git push -u origin main
 ```
 
-Optionally seed production data the same way the local seed works — or create products through the admin UI (recommended for real data).
+> SSH remotes (`git@github.com:…`) need an SSH key registered in your GitHub account (Settings → SSH and GPG keys). If `git push` says `Permission denied (publickey)`, either add a key or switch to HTTPS: `git remote set-url origin https://github.com/<you>/ordix.git`.
 
-### Continuous deployment (GitHub → Cloudflare)
+### Step 2 — Create the production database
 
-Two supported options:
+```bash
+npx wrangler d1 create ordix-db
+```
 
-1. **Workers Builds (recommended, zero config files):** In the Cloudflare dashboard → Workers & Pages → create → connect this repository. Set:
-   - Build command: `npx opennextjs-cloudflare build`
-   - Deploy command: `npx opennextjs-cloudflare deploy`
-   - Add `AUTH_SECRET` as a build/runtime secret (or keep it as a Worker secret from step 4 above).
-2. **GitHub Actions:** `.github/workflows/deploy.yml` is included — add `CLOUDFLARE_API_TOKEN` (and `CLOUDFLARE_ACCOUNT_ID`) as repository secrets; every push to `main` deploys.
+Copy the printed `database_id` into `wrangler.jsonc` (the `d1_databases` entry — keep the binding name `DB`, the code reads it). Then apply the schema:
+
+```bash
+npm run db:migrate:remote
+```
+
+Verify all 9 tables exist:
+
+```bash
+npx wrangler d1 execute ordix-db --remote -y \
+  --command "SELECT name FROM sqlite_master WHERE type='table'"
+```
+
+> **Never rename the `DB` binding** — `getCloudflareContext().env.DB` is hardcoded across the app. Also make sure there is exactly **one** `d1_databases` entry: wrangler and the app both use the first one.
+
+### Step 3 — Set the AUTH_SECRET (production)
+
+Your `.env` secrets are not deployed automatically — production reads an **encrypted secret attached to the Worker** (the runtime equivalent of `.env`):
+
+```bash
+# value from your .env (or generate a fresh one):
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+# interactive — paste when prompted:
+npx wrangler secret put AUTH_SECRET
+
+# or non-interactive:
+echo "paste-the-value-here" | npx wrangler secret put AUTH_SECRET
+```
+
+Dashboard equivalent: **Workers & Pages → ordix → Settings → Variables and Secrets → Add** (type: *Secret*). Secrets can never be read back — store the value in your password manager. If no Worker named `ordix` exists yet, wrangler creates a placeholder and attaches the secret; it stays attached through every later deploy. Never put the secret into `wrangler.jsonc` (that file is committed).
+
+### Step 4 — First deploy
+
+```bash
+npm run deploy          # builds + uploads; prints your URL
+```
+
+The app goes live at `https://ordix.<your-subdomain>.workers.dev`. Secrets persist — no need to re-set them after deploys.
+
+### Step 5 — Create the first admin user (production!)
+
+The production database starts **empty** — the demo seed only runs locally, so nobody can log in until you create the first account:
+
+```bash
+# admin (default role):
+npm run db:create-user -- you@example.com "strong-password" "Your Name"
+
+# additional staff accounts:
+npm run db:create-user -- maria@example.com "strong-password" "Maria" --staff --remote
+```
+
+(Without `--remote` the script targets your local database. It hashes the password with bcrypt and inserts through wrangler.)
+
+Then sign in at `/login` and build the real catalog in **Admin → Products / Categories**. Seeded demo products are for local development only — production starts clean on purpose.
+
+### Step 6 — Connect GitHub → automatic deploys (Workers Builds)
+
+Same push-to-deploy experience you know from Cloudflare Pages — but for this app you connect through **Workers**, not the Pages tab:
+
+1. **dash.cloudflare.com → Workers & Pages → Create → Workers → Connect to Git** (authorize GitHub, pick the repo, branch `main`)
+2. Set exactly these two commands, leave everything else default (it reads `wrangler.jsonc`):
+   - **Build command:** `npx opennextjs-cloudflare build`
+   - **Deploy command:** `npx opennextjs-cloudflare deploy`
+3. Save. From now on **every `git push` to `main` builds and deploys automatically**; pull-request branches get separate preview URLs.
+
+Notes:
+
+- `AUTH_SECRET` (Step 3) and the D1 binding survive every Git deploy — nothing to re-enter.
+- **Database migrations are NOT run by CI** — they're deliberate manual steps. Whenever `src/db/schema.ts` changes: `npm run db:generate`, commit, then `npm run db:migrate:remote` **before or right after** the deploy.
+
+**Alternative — GitHub Actions:** `.github/workflows/deploy.yml` is included; add `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` as GitHub repository secrets and pushes to `main` deploy via Actions instead. Use one mechanism or the other, not both.
+
+### APP_TIMEZONE (optional)
+
+Business-day boundaries (daily order-number reset) default to `Europe/Athens`. To change: add `"vars": { "APP_TIMEZONE": "…/…" }` in `wrangler.jsonc` and redeploy, or set it in the dashboard under the Worker's Variables.
+
+### Costs — will it run free?
+
+Yes, for a small team. Free-tier allowances vs. Ordix's appetite:
+
+| Resource | Free allowance | Ordix |
+|---|---|---|
+| Worker requests | 100,000/day | Page loads + API polls (polling pauses on hidden screens) |
+| Static assets | Unlimited, always free | Not counted |
+| D1 row reads | 5M/day | ~26–60 rows per poll |
+| D1 row writes | 100k/day | ~5–10 rows per order |
+| D1 storage | 5 GB | Text data — years of headroom |
+
+A few tablets use a few thousand requests/day. The one caveat: on Free, exceeding a daily cap means requests fail until midnight — once Ordix runs a real warehouse, the **$5/month paid plan** (10M requests/month) is cheap insurance.
 
 ---
 
