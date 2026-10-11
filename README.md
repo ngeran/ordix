@@ -184,6 +184,29 @@ npm run db:create-user -- maria@example.com "strong-password" "Maria" --staff --
 
 Then sign in at `/login` and build the real catalog in **Admin → Products / Categories**. Seeded demo products are for local development only — production starts clean on purpose.
 
+#### Optional: copy your local catalog to production
+
+If you built up products/categories locally and want them in production:
+
+```bash
+# 1. Export catalog tables from the local D1
+npx wrangler d1 export ordix-db --local --table categories --table products --output=catalog-export.sql
+
+# 2. IMPORTANT: keep only data — the export contains CREATE TABLE
+#    statements that would collide with the existing production schema
+grep -E "^(PRAGMA|INSERT)" catalog-export.sql > catalog-apply.sql
+
+# 3. Apply once (remote catalog must be empty; unique part numbers
+#    make a second run fail — clear remote first if you must re-run)
+npx wrangler d1 execute ordix-db --remote -y --file catalog-apply.sql
+
+# 4. Verify + clean up
+npx wrangler d1 execute ordix-db --remote -y --command "SELECT count(*) FROM products"
+rm catalog-export.sql catalog-apply.sql
+```
+
+This is a one-time copy — afterwards production is the source of truth and the catalog is managed through the admin UI.
+
 ### Step 6 — Connect GitHub → automatic deploys (Workers Builds)
 
 Same push-to-deploy experience you know from Cloudflare Pages — but for this app you connect through **Workers**, not the Pages tab:
