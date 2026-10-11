@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, FolderTree, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Category } from "@/db/schema";
-import { api } from "@/lib/api-client";
+import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
 import { useT } from "@/lib/i18n";
 import { toast } from "@/stores/toast-store";
@@ -67,7 +67,7 @@ export function CategoriesScreen() {
       });
       refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     }
   };
 
@@ -79,7 +79,7 @@ export function CategoriesScreen() {
       toast.success(t("categories.deleted"));
       refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setBusy(false);
       setDeleting(null);
@@ -245,7 +245,7 @@ function CategoryFormDialog({
       onSaved();
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setBusy(false);
     }

@@ -12,7 +12,7 @@
 // tablet can never show yesterday's stock as current.
 // ============================================================
 
-const CACHE_NAME = "ordix-v1";
+const CACHE_NAME = "ordix-v2";
 const OFFLINE_URL = "/offline.html";
 
 // Preinstalled at activate: the offline shell + branding assets.
@@ -50,16 +50,53 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
-
-  // Only handle same-origin GETs; everything else passes through.
-  if (request.method !== "GET") return;
   const url = new URL(request.url);
+
+  // Only handle same-origin requests.
   if (url.origin !== self.location.origin) return;
 
-  // API and auth: network only — freshness is a correctness rule.
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_next/image")) {
+  // ============================================================
+  // SECTION: API reads — network-first with cache fallback
+  // ------------------------------------------------------------
+  // This is half of the offline story (the write half is the
+  // IndexedDB outbox in the app): while offline, GET /api/*
+  // respond from the last successful response so boards and the
+  // catalog keep rendering. /api/auth is NEVER cached (session
+  // freshness is a correctness rule), and mutations pass through
+  // untouched — the app queues those itself when offline.
+  // ============================================================
+  if (request.method === "GET" && url.pathname.startsWith("/api/")) {
+    if (url.pathname.startsWith("/api/auth")) return; // network only
+
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          // 503 JSON keeps api-client's error handling consistent
+          // when there is no cached copy either.
+          return (
+            cached ??
+            new Response(JSON.stringify({ error: "offline" }), {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            })
+          );
+        })
+    );
     return;
   }
+
+  if (request.method !== "GET") return;
+
+  // Image optimizer: network only (responses are huge and dynamic).
+  if (url.pathname.startsWith("/_next/image")) return;
 
   // Immutable build assets + icons: cache first (they're hashed).
   if (

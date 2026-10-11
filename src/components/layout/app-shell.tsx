@@ -19,7 +19,10 @@ import type { OrdixSessionUser } from "@/types";
 import { useCartStore } from "@/stores/cart-store";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
+import { flushOutbox, refreshPendingCount } from "@/lib/offline-outbox";
+import { useSyncStore } from "@/stores/sync-store";
 import { LowStockBell } from "@/components/layout/low-stock-bell";
+import { SyncIndicator } from "@/components/layout/sync-indicator";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { LocaleToggle } from "@/components/locale-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
@@ -77,10 +80,49 @@ export function AppShell({
     useCartStore.persist.rehydrate();
   }, []);
 
+  // ============================================================
+  // SECTION: Offline sync lifecycle
+  // ------------------------------------------------------------
+  // Flush the IndexedDB outbox when connectivity returns, on app
+  // launch (queue may hold mutations from a previous session),
+  // and every 30 s while items are pending. The outbox itself is
+  // single-flusher (Web Locks), so multiple tabs are safe.
+  // ============================================================
+  useEffect(() => {
+    useSyncStore.getState().setOnline(navigator.onLine);
+    void refreshPendingCount();
+
+    const handleOnline = () => {
+      useSyncStore.getState().setOnline(true);
+      void flushOutbox();
+    };
+    const handleOffline = () => useSyncStore.getState().setOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // Catch-up flush shortly after mount (auth cookie settled).
+    const launchFlush = setTimeout(() => void flushOutbox(), 2_000);
+    // Retry loop while anything is queued (e.g. flaky warehouse Wi-Fi).
+    const retryInterval = setInterval(() => {
+      if (useSyncStore.getState().pending > 0 && navigator.onLine) {
+        void flushOutbox();
+      }
+    }, 30_000);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      clearTimeout(launchFlush);
+      clearInterval(retryInterval);
+    };
+  }, []);
+
   const isAdmin = user?.role === "admin";
 
-  // -- Bare layout for the login screen --
-  if (pathname === "/login") {
+  // -- Bare layouts: login (focus) and /display (wall board must
+  //    fill the tablet screen with no navigation chrome) --
+  if (pathname === "/login" || pathname === "/display") {
     return <>{children}</>;
   }
 
@@ -142,6 +184,7 @@ export function AppShell({
           <div className="hidden lg:block" />
 
           <div className="flex items-center gap-1">
+            <SyncIndicator />
             {isAdmin && <LowStockBell />}
             <InstallAppButton className="hidden sm:inline-flex" variant="compact" />
             <LocaleToggle />

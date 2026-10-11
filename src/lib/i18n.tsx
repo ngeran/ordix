@@ -208,6 +208,22 @@ const en = {
   "error.network": "Network error — check your connection",
   "error.forbidden": "You don't have permission for this action",
   "error.stockInsufficient": "Not enough stock available",
+
+  // -- Wall display board (/display) --
+  "display.title": "Warehouse board",
+  "display.queue": "Queue",
+  "display.inProgress": "In progress",
+  "display.prepared": "Prepared",
+  "display.shipped": "Shipped",
+  "display.minutes": "min",
+  "display.updated": "Updated {time}",
+
+  // -- Offline / sync --
+  "offline.queued": "Saved offline — will sync automatically",
+  "offline.pending": "{count} pending sync",
+  "offline.offline": "Offline",
+  "offline.synced": "Synced: {label}",
+  "offline.syncFailed": "Sync failed: {label}",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -398,6 +414,22 @@ const el: Record<MessageKey, string> = {
   "error.network": "Σφάλμα δικτύου — ελέγξτε τη σύνδεση",
   "error.forbidden": "Δεν έχετε δικαίωμα για αυτή την ενέργεια",
   "error.stockInsufficient": "Δεν υπάρχει αρκετό απόθεμα",
+
+  // -- Wall display board (/display) --
+  "display.title": "Πίνακας αποθήκης",
+  "display.queue": "Ουρά",
+  "display.inProgress": "Σε εξέλιξη",
+  "display.prepared": "Έτοιμα",
+  "display.shipped": "Απεστάλησαν",
+  "display.minutes": "λεπ",
+  "display.updated": "Ενημερώθηκε {time}",
+
+  // -- Offline / sync --
+  "offline.queued": "Αποθηκεύτηκε τοπικά — θα συγχρονιστεί αυτόματα",
+  "offline.pending": "{count} εκκρεμούν συγχρονισμού",
+  "offline.offline": "Εκτός σύνδεσης",
+  "offline.synced": "Συγχρονίστηκε: {label}",
+  "offline.syncFailed": "Αποτυχία συγχρονισμού: {label}",
 };
 
 const dictionaries: Record<Locale, Record<MessageKey, string>> = { en, el };
@@ -428,15 +460,33 @@ export const useLocaleStore = create<LocaleState>()(
  */
 export function useT() {
   const locale = useLocaleStore((state) => state.locale);
-  return (key: MessageKey, vars?: Record<string, string | number>): string => {
-    let text: string = dictionaries[locale][key] ?? en[key];
-    if (vars) {
-      for (const [name, value] of Object.entries(vars)) {
-        text = text.replaceAll(`{${name}}`, String(value));
-      }
+  return (key: MessageKey, vars?: Record<string, string | number>): string =>
+    translate(key, vars);
+}
+
+// ============================================================
+// SECTION: Non-React translation access
+// ------------------------------------------------------------
+// For code outside components (outbox flush toasts, service
+// helpers) that still needs localized strings.
+// ============================================================
+
+export function getLocale(): Locale {
+  return useLocaleStore.getState().locale;
+}
+
+export function translate(
+  key: MessageKey,
+  vars?: Record<string, string | number>
+): string {
+  const locale = getLocale();
+  let text: string = dictionaries[locale][key] ?? en[key];
+  if (vars) {
+    for (const [name, value] of Object.entries(vars)) {
+      text = text.replaceAll(`{${name}}`, String(value));
     }
-    return text;
-  };
+  }
+  return text;
 }
 
 /** Reactive locale for components that need it directly (dates etc.). */

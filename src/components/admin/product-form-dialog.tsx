@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import type { Category, Product } from "@/db/schema";
 import type { ProductWithCategory } from "@/types";
-import { api } from "@/lib/api-client";
+import { api, showErrorToast } from "@/lib/api-client";
 import { useT } from "@/lib/i18n";
 import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
@@ -134,7 +134,7 @@ export function ProductFormDialog({
       onSaved();
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setBusy(false);
     }

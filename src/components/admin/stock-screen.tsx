@@ -8,7 +8,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Boxes, Warehouse } from "lucide-react";
 import type { ProductWithCategory } from "@/types";
 import type { OrdixSettingsDTO } from "@/types";
-import { api } from "@/lib/api-client";
+import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -83,7 +83,7 @@ export function StockScreen() {
       refreshSettings();
       toast.success(t("stock.settingsSaved"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     }
   };
 

@@ -26,7 +26,7 @@ import type { OrderItem } from "@/db/schema";
 import type { OrdixSessionUser, OrderDetail as OrderDetailData } from "@/types";
 import { allowedTransitions, ORDER_MAIN_FLOW, STATUS_META, mainFlowIndex } from "@/lib/order-status";
 import { usePolling } from "@/lib/use-polling";
-import { api } from "@/lib/api-client";
+import { api, showErrorToast } from "@/lib/api-client";
 import { useLocale, useT } from "@/lib/i18n";
 import { cn, formatDateTime, formatMoney, formatRelativeTime } from "@/lib/utils";
 import { useCartStore } from "@/stores/cart-store";
@@ -100,7 +100,7 @@ export function OrderDetailScreen({
       await api.post(`/api/orders/${orderId}/status`, { status, note });
       refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setBusy(false);
     }
@@ -114,7 +114,7 @@ export function OrderDetailScreen({
       });
       refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     }
   };
 
@@ -130,7 +130,7 @@ export function OrderDetailScreen({
       setVoidingItem(null);
       refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setBusy(false);
     }
@@ -143,7 +143,7 @@ export function OrderDetailScreen({
       toast.success(t("detail.trackingSaved"));
       refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setBusy(false);
     }

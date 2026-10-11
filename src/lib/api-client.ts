@@ -1,3 +1,17 @@
+"use client";
+
+// ============================================================
+// SECTION: Imports
+// ============================================================
+
+import {
+  OfflineQueuedError,
+  describeOperation,
+  enqueueOperation,
+  isNetworkFailure,
+} from "@/lib/offline-outbox";
+import { toast } from "@/stores/toast-store";
+
 // ============================================================
 // SECTION: Fetch wrapper (client-side)
 // ------------------------------------------------------------
@@ -6,8 +20,13 @@
 //   - JSON encode/decode + headers
 //   - throw ApiError with the server's message (routes return
 //     { error: string } envelopes)
+//   - OFFLINE WRITES: a mutation that fails at the network level
+//     is queued in IndexedDB (offline-outbox) and surfaces as an
+//     OfflineQueuedError — screens show "saved offline" instead
+//     of an error; the queue replays automatically on reconnect.
 //   - no-store everywhere: data must never be cached by the
-//     browser because stock/status change constantly
+//     browser because stock/status change constantly (offline
+//     READ caching lives in the service worker instead)
 // ============================================================
 
 export class ApiError extends Error {
@@ -25,30 +44,50 @@ async function request<T>(
   init?: RequestInit & { json?: unknown }
 ): Promise<T> {
   const { json, ...rest } = init ?? {};
-  const response = await fetch(url, {
-    ...rest,
-    cache: "no-store",
-    headers: {
-      ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...rest.headers,
-    },
-    body: json !== undefined ? JSON.stringify(json) : rest.body,
-  });
+  const method = rest.method ?? "GET";
 
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try {
-      const data = (await response.json()) as { error?: string };
-      if (data.error) message = data.error;
-    } catch {
-      // keep the generic message
+  try {
+    const response = await fetch(url, {
+      ...rest,
+      cache: "no-store",
+      headers: {
+        ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...rest.headers,
+      },
+      body: json !== undefined ? JSON.stringify(json) : rest.body,
+    });
+
+    if (!response.ok) {
+      let message = `Request failed (${response.status})`;
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data.error) message = data.error;
+      } catch {
+        // keep the generic message
+      }
+      throw new ApiError(message, response.status);
     }
-    throw new ApiError(message, response.status);
-  }
 
-  // 204 No Content (used by DELETE endpoints)
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+    // 204 No Content (used by DELETE endpoints)
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  } catch (error) {
+    // Network-level failure on a mutating request → queue for
+    // replay and tell the caller it's safely stored locally.
+    if (method !== "GET" && !(error instanceof ApiError) && isNetworkFailure(error)) {
+      const label = describeOperation(method, url, json);
+      await enqueueOperation({
+        id: crypto.randomUUID(),
+        url,
+        method: method as "POST" | "PATCH" | "DELETE",
+        body: json,
+        label,
+        createdAt: Date.now(),
+      });
+      throw new OfflineQueuedError(label);
+    }
+    throw error;
+  }
 }
 
 /** Typed REST helpers — `api.get<OrderSummary[]>("/api/orders?scope=active")`. */
@@ -60,3 +99,23 @@ export const api = {
     request<T>(url, { method: "PATCH", json }),
   delete: <T>(url: string) => request<T>(url, { method: "DELETE" }),
 };
+
+// ============================================================
+// SECTION: Shared error toast helper
+// ------------------------------------------------------------
+// Screens call this in every mutation catch block: offline-queued
+// mutations show as a friendly warning, server errors show the
+// server's message, anything else the fallback text.
+// ============================================================
+
+export function showErrorToast(error: unknown, fallback: string): void {
+  if (error instanceof OfflineQueuedError) {
+    toast.warning(error.message);
+    return;
+  }
+  if (error instanceof ApiError) {
+    toast.error(error.message);
+    return;
+  }
+  toast.error(fallback);
+}

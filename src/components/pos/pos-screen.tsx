@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReceiptText, X } from "lucide-react";
-import { api } from "@/lib/api-client";
+import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
 import { useT } from "@/lib/i18n";
 import { useCartStore } from "@/stores/cart-store";
@@ -111,7 +111,7 @@ export function PosScreen() {
         router.push(`/orders/${created.id}`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setPlacing(false);
     }

@@ -23,6 +23,8 @@ Runs on phones, tablets and desktops (any orientation), fully installable as a *
 - 👥 **Roles** — admin (catalog, stock, settings) vs staff (ordering, prep)
 - 🌗 **Dark & light mode**, 🇬🇧/🇬🇷 **EN/EL bilingual UI**
 - 📲 **PWA** — manifest + service worker + offline shell, installable
+- 📺 **Warehouse wall display** — `/display` turns any iPad/Android tablet into a read-only status board (QUEUE / IN PROGRESS / PREPARED / SHIPPED), auto-refreshing, readable across the aisle
+- 🔌 **Offline-first** — works without internet: reads from service-worker cache, writes queue in IndexedDB and sync to Cloudflare automatically on reconnect
 
 ---
 
@@ -199,6 +201,62 @@ Screens poll their APIs (5 s boards / 15 s catalog / 30 s stock bell) through a 
 - `npm run dev` binds `0.0.0.0` — any tablet on the same network can use the app.
 - The service worker caches the shell + static assets; navigations fall back to `offline.html` when the server is unreachable. **API data is never served from cache** (stock correctness beats offline writes).
 - In production, Cloudflare serves the app globally; LAN clients talk to the edge like any website.
+
+---
+
+## Offline mode & sync architecture
+
+Ordix is built **offline-first**: the warehouse keeps working when the internet drops, and everything written locally reaches Cloudflare automatically once the connection is back.
+
+### How the devices communicate
+
+```
+                    ┌──────────────────────────┐
+   Internet OK      │  Cloudflare Workers + D1  │   ← source of truth
+ ◄──────────────────►│  (global edge network)    │
+                    └────────────┬─────────────┘
+                                 │ HTTPS
+          ┌──────────────────────┼──────────────────────┐
+          │                      │                      │
+   ┌──────┴──────┐        ┌──────┴──────┐        ┌──────┴──────┐
+   │  POS tablet │        │  Prep tablet│        │ Wall display│   ← same Wi-Fi / LAN
+   │ (PWA, queue)│        │ (PWA, queue)│        │  (read-only)│      no server needed
+   └─────────────┘        └─────────────┘        └─────────────┘
+```
+
+- **Online:** every tablet talks directly to the Cloudflare Worker over HTTPS — there is no local server to install or maintain. The LAN only needs internet access (any Wi-Fi router).
+- **Offline:** each tablet's **PWA keeps running**:
+  1. **Reads** — the service worker has cached every recent API response; boards, catalog and stock screens keep rendering the last known data, clearly flagged with a *"showing last known data"* banner.
+  2. **Writes** — every mutation (place order, status change, void, stock adjustment, …) is stored in the device's **IndexedDB outbox** and confirmed to the user with *"Saved offline — will sync automatically"*. The app keeps a header indicator with the number of pending changes.
+  3. **Sync** — the moment connectivity returns (or on app launch, or the 30 s retry), the outbox replays **oldest-first, in order**. Only one tab per device flushes at a time (Web Locks API), so two open tabs can't double-send.
+
+### What happens to an offline order at sync time
+
+Order numbers, stock deduction and every business rule are applied **by the server at replay time** — never guessed on the client. That means:
+
+- Offline-placed orders get their real `ORD-YYYYMMDD-NNN` number during sync (numbers stay unique even if several tablets were offline).
+- If reality changed while you were offline (stock already gone), the server rejects that replay with a clear **"Sync failed: New order — Not enough stock for …"** toast, and the change is dropped for manual re-entry. No silent corruption, no negative stock.
+- Draft tickets live in `localStorage` (Zustand persist), so an unfinished order survives a reload or a day offline.
+
+> **Known trade-off:** a mutation whose response was lost *after* the server already applied it (rare timeout, not true offline) could be applied twice on replay. Server-side idempotency keys are the textbook fix and are deliberately left as future work — the current behavior favors simplicity, and the audit trail makes any duplicate obvious.
+
+### Running a fully offline LAN server (no internet at all)
+
+If a site must run **completely without internet**, run the same Worker locally on any always-on machine in the workshop:
+
+```bash
+npm run build
+npx opennextjs-cloudflare preview --ip 0.0.0.0 --port 8787
+```
+
+That serves the production build against the **local D1** (`.wrangler/state/v3`) — full functionality on `http://<workshop-server>:8787` from every tablet, zero internet required. Data written in this mode lives in the local D1; to push it up to the cloud database later:
+
+```bash
+npx wrangler d1 export ordix-db --local --output=export.sql   # dump local
+npx wrangler d1 execute ordix-db --remote --file=export.sql   # apply remote (dedupe/merge first!)
+```
+
+This export/apply path is a manual runbook for exceptional setups, not an automatic replication engine — for the normal online+offline-drift case, the PWA outbox above is the sync mechanism. A built-in bidirectional D1 sync agent is a possible future addition; the data model (server-allocated numbers, monotonic counters, audit tables) was designed so that such an agent can be added without schema changes.
 
 ---
 

@@ -8,12 +8,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChefHat, ClipboardList, Play, Check } from "lucide-react";
 import type { OrderDetail as OrderDetailData, OrderSummary } from "@/types";
-import { api } from "@/lib/api-client";
+import { api, showErrorToast } from "@/lib/api-client";
 import { STATUS_META } from "@/lib/order-status";
 import { usePolling } from "@/lib/use-polling";
 import { useLocale, useT } from "@/lib/i18n";
 import { formatRelativeTime } from "@/lib/utils";
-import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { LoadingArea } from "@/components/ui/spinner";
@@ -86,7 +85,7 @@ export function PrepBoard() {
       await api.post(`/api/orders/${orderId}/status`, { status });
       // The 5 s poll reconciles the board; no local patch needed.
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     }
   };
 

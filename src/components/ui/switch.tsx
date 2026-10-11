@@ -3,8 +3,14 @@
 // ============================================================
 // SECTION: Switch (toggle)
 // ------------------------------------------------------------
-// Accessible switch pattern: a real <button role="switch"> at
-// 48px touch height, animated thumb, labeled by `aria-label`.
+// Accessible switch pattern: a real <button role="switch"> with
+// an animated thumb. Geometry is chosen so the thumb ALWAYS
+// stays inside the track with an even inset on both sides:
+//   track 48×28 (w-12 h-7), thumb 20×20 (h-5 w-5), inset 4px
+//   → checked:   left 4 + travel 20 + thumb 20 + right 4 = 48
+//   → unchecked: left 4 + thumb 20 + right 24
+// (The earlier version let the thumb land flush with the track
+// edge, which read as a rendering glitch on high-DPR tablets.)
 // ============================================================
 
 import { cn } from "@/lib/utils";
@@ -25,7 +31,7 @@ export function Switch({ checked, onChange, disabled, ...aria }: SwitchProps) {
       onClick={() => onChange(!checked)}
       disabled={disabled}
       className={cn(
-        "relative h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-50",
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
         checked ? "bg-primary" : "bg-surface-container-highest"
       )}
       {...aria}
@@ -33,8 +39,8 @@ export function Switch({ checked, onChange, disabled, ...aria }: SwitchProps) {
       <span
         aria-hidden
         className={cn(
-          "absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform",
-          checked ? "translate-x-7" : "translate-x-1"
+          "absolute left-1 h-5 w-5 rounded-full bg-white shadow transition-transform duration-150",
+          checked ? "translate-x-5" : "translate-x-0"
         )}
       />
     </button>

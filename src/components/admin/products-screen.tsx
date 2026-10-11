@@ -8,7 +8,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Package, Pencil, Plus, Search, Trash2, Warehouse } from "lucide-react";
 import type { Category, Product } from "@/db/schema";
 import type { ProductWithCategory } from "@/types";
-import { api } from "@/lib/api-client";
+import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
 import { useLocale, useT } from "@/lib/i18n";
 import { cn, formatMoney } from "@/lib/utils";
@@ -71,7 +71,7 @@ export function ProductsScreen() {
       await api.patch<Product>(`/api/products/${product.id}`, { isActive: next });
       refreshProducts();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     }
   };
 
@@ -88,7 +88,7 @@ export function ProductsScreen() {
       }
       refreshProducts();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("error.generic"));
+      showErrorToast(error, t("error.generic"));
     } finally {
       setDeleting(null);
     }
@@ -149,34 +149,47 @@ export function ProductsScreen() {
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {products.map((product) => (
             <li key={product.id}>
-              <Card className={cn("flex h-full flex-col p-4", !product.isActive && "opacity-60")}>
-                <div className="flex items-start justify-between gap-2">
+              <Card className={cn("flex h-full flex-col gap-3 p-4", !product.isActive && "opacity-60")}>
+                {/* Title + active toggle */}
+                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold">{product.name}</p>
-                    <p className="font-mono text-xs text-on-surface-muted">
+                    <p className="truncate font-semibold leading-snug">{product.name}</p>
+                    <p className="mt-0.5 truncate font-mono text-xs text-on-surface-muted">
                       {product.partNumber} · {product.categoryName ?? "—"}
                     </p>
                   </div>
-                  <Switch
-                    checked={product.isActive}
-                    onChange={(next) => toggleActive(product, next)}
-                    aria-label={t("products.isActive")}
-                  />
-                </div>
-
-                <div className="mt-3 flex items-end justify-between gap-2">
-                  <div>
-                    <p className="text-lg font-bold text-primary">
-                      {formatMoney(product.priceCents, locale)}
-                    </p>
-                    <p className={cn("text-sm font-medium", product.isLowStock ? "text-warning" : "text-on-surface-muted")}>
-                      {product.isLowStock && <AlertTriangle className="mr-1 inline h-4 w-4" aria-hidden />}
-                      {t("stock.current")}: {product.stockQuantity} {product.unit} · min {product.minStock}
-                    </p>
+                  <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                    <span className="text-[11px] text-on-surface-muted">
+                      {product.isActive ? t("common.active") : t("common.inactive")}
+                    </span>
+                    <Switch
+                      checked={product.isActive}
+                      onChange={(next) => toggleActive(product, next)}
+                      aria-label={t("products.isActive")}
+                    />
                   </div>
                 </div>
 
-                <div className="mt-3 flex gap-2 border-t border-border pt-3">
+                {/* Price + stock pill */}
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-lg font-bold text-primary">
+                    {formatMoney(product.priceCents, locale)}
+                  </p>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
+                      product.isLowStock
+                        ? "bg-warning-soft text-warning"
+                        : "bg-surface-container text-on-surface-muted"
+                    )}
+                  >
+                    {product.isLowStock && <AlertTriangle className="h-3.5 w-3.5" aria-hidden />}
+                    {t("stock.current")}: {product.stockQuantity} {product.unit} · {t("stock.min")} {product.minStock}
+                  </span>
+                </div>
+
+                {/* Actions pinned to the card bottom */}
+                <div className="mt-auto flex gap-2 border-t border-border pt-3">
                   <Button variant="secondary" size="sm" className="flex-1" onClick={() => setEditing(product)}>
                     <Pencil className="h-4 w-4" />
                     {t("common.edit")}
