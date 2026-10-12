@@ -11,17 +11,17 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ============================================================
-   SECTION: Design tokens — light theme (default)
+   SECTION: Design tokens — light theme
    ------------------------------------------------------------
-   Industrial-clean palette: strong blue primary, neutral gray
-   surfaces, semantic colors for stock/order states.
+   Indigo brand family for bright environments. The flagship
+   experience is the dark theme below (Tactile Warehouse OS).
    ============================================================ */
 
 :root {
-  --primary: #2f54c8;
-  --primary-strong: #24409c;
+  --primary: #494bd6;
+  --primary-strong: #3f41c4;
   --on-primary: #ffffff;
-  --primary-soft: #e3e9fc;
+  --primary-soft: rgba(73, 75, 214, 0.12);
 
   --background: #f5f6f8;
   --on-background: #171a20;
@@ -38,49 +38,57 @@
   --border: #d5dae2;
   --outline: #8d97a6;
 
-  --success: #15803d;
+  --success: #0e9f6e;
+  --on-success: #ffffff;
   --success-soft: #dcf3e3;
   --warning: #b45309;
   --warning-soft: #fdeecd;
   --error: #b3261e;
+  --on-error: #ffffff;
   --error-soft: #fcd9d6;
   --info: #0369a1;
   --info-soft: #dbeefe;
 }
 
 /* ============================================================
-   SECTION: Design tokens — dark theme
+   SECTION: Design tokens — dark theme (Tactile Warehouse OS)
+   ------------------------------------------------------------
+   Midnight-slate canvas tuned for workshop tablets: rich tiers,
+   electric indigo primary, emerald/amber/rose accents, crisp
+   ghost outlines instead of muddy shadows.
    ============================================================ */
 
 .dark {
-  --primary: #8ba3f5;
-  --primary-strong: #a7b9f8;
-  --on-primary: #0d1c4f;
-  --primary-soft: #1d2a55;
+  --primary: #8083ff;
+  --primary-strong: #9497ff;
+  --on-primary: #0d0096;
+  --primary-soft: rgba(128, 131, 255, 0.16);
 
-  --background: #0e1116;
-  --on-background: #e4e8ef;
+  --background: #0f131d;
+  --on-background: #dfe2f1;
 
-  --surface: #151a22;
-  --surface-container-lowest: #10141b;
-  --surface-container-low: #1a2029;
-  --surface-container: #202834;
-  --surface-container-high: #262f3d;
-  --surface-container-highest: #2e3848;
-  --on-surface: #e4e8ef;
-  --on-surface-muted: #97a1b2;
+  --surface: #0f131d;
+  --surface-container-lowest: #0a0e18;
+  --surface-container-low: #171b26;
+  --surface-container: #1c1f2a;
+  --surface-container-high: #262a35;
+  --surface-container-highest: #313540;
+  --on-surface: #dfe2f1;
+  --on-surface-muted: #908fa0;
 
-  --border: #2b3442;
-  --outline: #6b7686;
+  --border: #464554;
+  --outline: #908fa0;
 
-  --success: #4ade80;
-  --success-soft: #123822;
-  --warning: #fbbf24;
-  --warning-soft: #3d2c05;
-  --error: #f87171;
-  --error-soft: #451a17;
-  --info: #7dd3fc;
-  --info-soft: #0c3350;
+  --success: #4edea3;
+  --on-success: #003824;
+  --success-soft: rgba(78, 222, 163, 0.14);
+  --warning: #ffb95f;
+  --warning-soft: rgba(255, 185, 95, 0.14);
+  --error: #ffb4ab;
+  --on-error: #690005;
+  --error-soft: rgba(255, 180, 171, 0.12);
+  --info: #c0c1ff;
+  --info-soft: rgba(192, 193, 255, 0.14);
 }
 
 /* ============================================================
@@ -96,6 +104,8 @@
   --color-primary-strong: var(--primary-strong);
   --color-on-primary: var(--on-primary);
   --color-primary-soft: var(--primary-soft);
+  --color-on-success: var(--on-success);
+  --color-on-error: var(--on-error);
 
   --color-background: var(--background);
   --color-on-background: var(--on-background);
@@ -121,10 +131,23 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
 
-  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
 
   --shadow-card: 0 1px 3px rgb(9 12 20 / 0.08), 0 1px 2px rgb(9 12 20 / 0.04);
   --shadow-pop: 0 8px 30px rgb(9 12 20 / 0.16);
+}
+
+/* ============================================================
+   SECTION: Dark-theme shadows & glow (Tactile Warehouse OS)
+   ------------------------------------------------------------
+   Depth comes from tonal layering + crisp indigo focus glow,
+   not muddy drop shadows.
+   ============================================================ */
+
+.dark {
+  --shadow-card: 0 0 0 1px rgb(70 69 84 / 0.35);
+  --shadow-pop: 0 8px 20px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(70 69 84 / 0.4);
+  --shadow-glow: 0 0 0 2px #8083ff, 0 8px 20px rgb(0 0 0 / 0.45);
 }
 
 /* ============================================================

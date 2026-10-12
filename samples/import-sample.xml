@@ -20,20 +20,14 @@
       <name>T-Slot Profile 40×40 (6m bar)</name>
       <category>Aluminum Profiles</category>
       <itemsPerBox>6</itemsPerBox>
-      <pricePerBox>171.00</pricePerBox>
-      <pricePerItem>28.50</pricePerItem>
-      <stock>64</stock>
-      <minStock>20</minStock>
+      <binLocation>Rack C-04</binLocation>
     </product>
     <product>
       <partNumber>LOCK-MP-R70</partNumber>
       <name>Multipoint Lock R70 35mm</name>
       <category>Locking Mechanisms</category>
       <itemsPerBox>10</itemsPerBox>
-      <pricePerBox>599.00</pricePerBox>
-      <pricePerItem>64.20</pricePerItem>
-      <stock>7</stock>
-      <minStock>10</minStock>
+      <binLocation>Shelf D-03</binLocation>
     </product>
   </products>
 </ordix>

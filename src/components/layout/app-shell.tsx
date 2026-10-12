@@ -9,13 +9,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Banknote,
-  Boxes,
   ClipboardList,
-  FolderTree,
   Factory,
+  FileUp,
+  FolderTree,
   Home,
   Package,
   ShoppingCart,
+  UserRound,
 } from "lucide-react";
 import type { OrdixSessionUser } from "@/types";
 import { useCartStore } from "@/stores/cart-store";
@@ -46,7 +47,8 @@ interface NavItem {
     | "nav.cashier"
     | "nav.products"
     | "nav.categories"
-    | "nav.stock";
+    | "nav.customers"
+    | "nav.import";
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
 }
@@ -62,7 +64,8 @@ const NAV_MAIN: NavItem[] = [
 const NAV_ADMIN: NavItem[] = [
   { href: "/admin/products", labelKey: "nav.products", icon: Package },
   { href: "/admin/categories", labelKey: "nav.categories", icon: FolderTree },
-  { href: "/admin/stock", labelKey: "nav.stock", icon: Boxes },
+  { href: "/admin/customers", labelKey: "nav.customers", icon: UserRound },
+  { href: "/admin/import", labelKey: "nav.import", icon: FileUp },
 ];
 
 // ============================================================

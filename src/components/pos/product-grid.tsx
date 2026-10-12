@@ -4,71 +4,74 @@
 // SECTION: Imports
 // ============================================================
 
-import { useMemo } from "react";
-import { Package, Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Boxes, MapPin, Package, Search } from "lucide-react";
 import type { Category } from "@/db/schema";
 import type { ProductWithCategory } from "@/types";
-import { useCartStore } from "@/stores/cart-store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 
 // ============================================================
-// SECTION: Product grid
+// SECTION: Product grid (Factory Parts Ledger)
 // ------------------------------------------------------------
-// Search + category chips + responsive card grid. Tap a card to
-// push it onto the ticket (one box by default — adjust κουτιά /
-// τεμάχια in the ticket). Build-to-order: no stock badges, no
-// oversell guard — every product is made to order.
+// Mockup-faithful cards: SKU pill + bin badge on top, bold name,
+// one-line description, and a footer showing the sealed-box size
+// ("Box = 25 pcs") with a Select button. Filtering (search +
+// category) happens client-side so counts stay instant.
 // ============================================================
 
 interface ProductGridProps {
   products: ProductWithCategory[] | null;
   categories: Category[];
-  search: string;
-  onSearch: (value: string) => void;
-  selectedCategoryId: string | null;
-  onSelectCategory: (categoryId: string | null) => void;
+  activeProductId?: string;
   isStale: boolean;
+  /** Tapping a card (or Select) loads it into the calculator. */
+  onSelect: (product: ProductWithCategory) => void;
 }
 
 export function ProductGrid({
   products,
   categories,
-  search,
-  onSearch,
-  selectedCategoryId,
-  onSelectCategory,
+  activeProductId,
   isStale,
+  onSelect,
 }: ProductGridProps) {
   const t = useT();
-  const addProduct = useCartStore((state) => state.addProduct);
 
-  // Only categories with active placement in the tabs; inactive
-  // categories disappear from the ordering surface entirely.
-  const visibleCategories = useMemo(
-    () => categories.filter((category) => category.isActive),
-    [categories]
-  );
+  // -- Client-side filtering state (catalog is small: ~dozens) --
+  const [search, setSearch] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
 
-  // ============================================================
-  // SECTION: Add-to-ticket
-  // ============================================================
+  const filtered = useMemo(() => {
+    let list = products ?? [];
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (product) =>
+          product.name.toLowerCase().includes(q) ||
+          product.partNumber.toLowerCase().includes(q) ||
+          (product.barcode ?? "").toLowerCase().includes(q)
+      );
+    }
+    if (categoryId) {
+      list = list.filter((product) => product.categoryId === categoryId);
+    }
+    return list;
+  }, [products, search, categoryId]);
 
-  const handleAdd = (product: ProductWithCategory) => {
-    addProduct({
-      productId: product.id,
-      partNumber: product.partNumber,
-      name: product.name,
-      imageUrl: product.imageUrl,
-    });
-  };
+  const countFor = (id: string | null) =>
+    id === null
+      ? (products ?? []).length
+      : (products ?? []).filter((product) => product.categoryId === id).length;
+
+  const visibleCategories = categories.filter((category) => category.isActive);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* ============================================================
-          SECTION: Search + stale-data hint
+          SECTION: Scan-style search header
           ============================================================ */}
       <div className="border-b border-border px-4 pb-3 pt-4">
         <div className="relative">
@@ -78,10 +81,10 @@ export function ProductGrid({
           />
           <Input
             value={search}
-            onChange={(event) => onSearch(event.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder={t("pos.searchPlaceholder")}
             aria-label={t("common.search")}
-            className="pl-11"
+            className="pl-11 font-mono"
             type="search"
           />
         </div>
@@ -91,85 +94,51 @@ export function ProductGrid({
       </div>
 
       {/* ============================================================
-          SECTION: Category chips (horizontal scroll, touch-first)
+          SECTION: Category pills with live counts
           ============================================================ */}
       <div
         className="scrollbar-hide flex gap-2 overflow-x-auto border-b border-border px-4 py-3"
         role="tablist"
         aria-label={t("products.category")}
       >
-        <CategoryChip
+        <CategoryPill
           label={t("common.all")}
-          selected={selectedCategoryId === null}
-          onClick={() => onSelectCategory(null)}
+          count={countFor(null)}
+          selected={categoryId === null}
+          onClick={() => setCategoryId(null)}
         />
         {visibleCategories.map((category) => (
-          <CategoryChip
+          <CategoryPill
             key={category.id}
             label={category.name}
-            selected={selectedCategoryId === category.id}
+            count={countFor(category.id)}
+            selected={categoryId === category.id}
             onClick={() =>
-              onSelectCategory(
-                selectedCategoryId === category.id ? null : category.id
-              )
+              setCategoryId(categoryId === category.id ? null : category.id)
             }
           />
         ))}
       </div>
 
       {/* ============================================================
-          SECTION: Grid
+          SECTION: Part cards
           ============================================================ */}
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
-        {products === null ? null : products.length === 0 ? (
+        {products === null ? null : filtered.length === 0 ? (
           <EmptyState
             icon={Package}
             title={t("products.empty")}
             hint={t("pos.searchPlaceholder")}
           />
         ) : (
-          <ul
-            className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4"
-            aria-label={t("nav.products")}
-          >
-            {products.map((product) => (
-              <li key={product.id}>
-                <button
-                  onClick={() => handleAdd(product)}
-                  className="flex h-full w-full flex-col rounded-2xl border-2 border-border bg-surface p-4 text-left shadow-card transition-all hover:border-primary hover:shadow-pop active:scale-[0.97]"
-                >
-                  {/* Image or placeholder */}
-                  <div className="mb-3 flex h-24 w-full items-center justify-center overflow-hidden rounded-xl bg-surface-container-low">
-                    {product.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={product.imageUrl}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <Package
-                        className="h-10 w-10 text-on-surface-muted/50"
-                        aria-hidden
-                      />
-                    )}
-                  </div>
-
-                  {/* Name + part number + barcode */}
-                  <span className="line-clamp-2 text-base font-semibold leading-snug">
-                    {product.name}
-                  </span>
-                  <span className="mt-1 font-mono text-sm text-on-surface-muted">
-                    {product.partNumber}
-                  </span>
-                  {product.barcode && (
-                    <span className="mt-0.5 font-mono text-xs text-on-surface-muted/70">
-                      {product.barcode}
-                    </span>
-                  )}
-                </button>
-              </li>
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {filtered.map((product) => (
+              <PartCard
+                key={product.id}
+                product={product}
+                active={product.id === activeProductId}
+                onSelect={onSelect}
+              />
             ))}
           </ul>
         )}
@@ -179,15 +148,93 @@ export function ProductGrid({
 }
 
 // ============================================================
-// SECTION: Category chip
+// SECTION: Part card (mockup style — no images/prices/stock)
 // ============================================================
 
-function CategoryChip({
+function PartCard({
+  product,
+  active,
+  onSelect,
+}: {
+  product: ProductWithCategory;
+  active: boolean;
+  onSelect: (product: ProductWithCategory) => void;
+}) {
+  const t = useT();
+
+  return (
+    <button
+      onClick={() => onSelect(product)}
+      className={cn(
+        "flex h-full flex-col justify-between gap-3 rounded-xl border-2 bg-surface-container-low p-4 text-left shadow-card transition-all duration-150 hover:bg-surface-container",
+        active
+          ? "border-primary/80"
+          : "border-border hover:border-primary/40"
+      )}
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <span className="rounded border border-border bg-surface-container-high px-2.5 py-1 font-mono text-xs font-bold text-primary">
+            {product.partNumber}
+          </span>
+          {product.binLocation && (
+            <span className="flex items-center gap-1 rounded bg-surface-container px-2.5 py-0.5 font-mono text-xs font-semibold text-on-surface-muted">
+              <MapPin className="h-3.5 w-3.5 text-tertiary" aria-hidden />
+              {product.binLocation}
+            </span>
+          )}
+        </div>
+        <div>
+          <h3 className="text-base font-extrabold leading-snug text-on-surface">
+            {product.name}
+          </h3>
+          {product.description && (
+            <p className="mt-0.5 line-clamp-2 text-sm text-on-surface-muted">
+              {product.description}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-border pt-2">
+        {product.itemsPerBox ? (
+          <span className="flex items-center gap-2 text-sm font-bold text-on-surface">
+            <Boxes className="h-5 w-5 text-success" aria-hidden />
+            {t("pos.boxEquals", { count: product.itemsPerBox })}
+          </span>
+        ) : (
+          <span className="flex items-center gap-2 text-sm font-bold text-on-surface-muted">
+            <Package className="h-5 w-5" aria-hidden />
+            {t("pos.looseOnly")}
+          </span>
+        )}
+        <span
+          className={cn(
+            "rounded-lg px-3 py-1.5 text-sm font-bold transition-all",
+            active
+              ? "bg-primary text-on-primary"
+              : "bg-surface-container-high text-on-surface hover:bg-primary hover:text-on-primary"
+          )}
+        >
+          {t("pos.select")}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+// ============================================================
+// SECTION: Category pill with count
+// ============================================================
+
+function CategoryPill({
   label,
+  count,
   selected,
   onClick,
 }: {
   label: string;
+  count: number;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -197,13 +244,21 @@ function CategoryChip({
       aria-selected={selected}
       onClick={onClick}
       className={cn(
-        "h-10 shrink-0 rounded-full px-4 text-sm font-medium transition-colors",
+        "flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 font-semibold transition-all",
         selected
-          ? "bg-primary text-on-primary"
-          : "bg-surface-container text-on-surface-muted hover:bg-surface-container-high"
+          ? "bg-primary text-on-primary shadow"
+          : "border border-border bg-surface-container text-on-surface-muted hover:bg-surface-container-high hover:text-on-surface"
       )}
     >
-      {label}
+      <span>{label}</span>
+      <span
+        className={cn(
+          "rounded-full px-2 py-0.5 font-mono text-xs",
+          selected ? "bg-on-primary/20 text-on-primary" : "text-on-surface-muted"
+        )}
+      >
+        {count}
+      </span>
     </button>
   );
 }

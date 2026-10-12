@@ -200,6 +200,8 @@ export async function POST(request: Request) {
           partNumber: product.partNumber,
           name: product.name,
           categoryId,
+          itemsPerBox: product.itemsPerBox ?? null,
+          binLocation: product.binLocation ?? null,
         });
       }
       productByPart.set(product.partNumber.toLowerCase(), {
@@ -211,6 +213,8 @@ export async function POST(request: Request) {
         imageUrl: null,
         isActive: true,
         barcode: null,
+        itemsPerBox: product.itemsPerBox ?? null,
+        binLocation: product.binLocation ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });

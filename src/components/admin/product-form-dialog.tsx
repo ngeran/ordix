@@ -48,6 +48,8 @@ export function ProductFormDialog({
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [barcode, setBarcode] = useState("");
+  const [itemsPerBox, setItemsPerBox] = useState("");
+  const [binLocation, setBinLocation] = useState("");
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -59,6 +61,8 @@ export function ProductFormDialog({
       setName(product.name);
       setCategoryId(product.categoryId);
       setBarcode(product.barcode ?? "");
+      setItemsPerBox(product.itemsPerBox ? String(product.itemsPerBox) : "");
+      setBinLocation(product.binLocation ?? "");
       setDescription(product.description ?? "");
       setIsActive(product.isActive);
     } else {
@@ -66,6 +70,8 @@ export function ProductFormDialog({
       setName("");
       setCategoryId(categories[0]?.id ?? "");
       setBarcode("");
+      setItemsPerBox("");
+      setBinLocation("");
       setDescription("");
       setIsActive(true);
     }
@@ -83,6 +89,8 @@ export function ProductFormDialog({
         name: name.trim(),
         categoryId,
         barcode: barcode.trim() || undefined,
+        itemsPerBox: itemsPerBox ? Number(itemsPerBox) : null,
+        binLocation: binLocation.trim() || undefined,
         description: description.trim() || undefined,
         isActive,
       };
@@ -145,6 +153,25 @@ export function ProductFormDialog({
         </Field>
         <Field label={`${t("products.barcode")} (${t("common.optional")})`} htmlFor="p-barcode">
           <Input id="p-barcode" value={barcode} onChange={(event) => setBarcode(event.target.value)} />
+        </Field>
+        <Field label={`${t("products.itemsPerBox")} (${t("common.optional")})`} htmlFor="p-ipb">
+          <Input
+            id="p-ipb"
+            type="number"
+            min="0"
+            inputMode="numeric"
+            value={itemsPerBox}
+            onChange={(event) => setItemsPerBox(event.target.value)}
+            placeholder="e.g. 25"
+          />
+        </Field>
+        <Field label={`${t("products.binLocation")} (${t("common.optional")})`} htmlFor="p-bin">
+          <Input
+            id="p-bin"
+            value={binLocation}
+            onChange={(event) => setBinLocation(event.target.value)}
+            placeholder="Rack C-04"
+          />
         </Field>
 
         <Field label={t("products.description")} htmlFor="p-desc" className="sm:col-span-2">

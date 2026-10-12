@@ -47,6 +47,8 @@ const rawProductSchema = z.object({
   partNumber: z.string().trim().min(1, "product.partNumber is required"),
   name: z.string().trim().min(1, "product.name is required"),
   category: z.string().trim().optional(),
+  itemsPerBox: z.coerce.number().int().min(0).optional(),
+  binLocation: z.string().trim().optional(),
 });
 
 export interface ParsedCustomer {
@@ -61,6 +63,8 @@ export interface ParsedProduct {
   partNumber: string;
   name: string;
   category?: string;
+  itemsPerBox?: number;
+  binLocation?: string;
 }
 
 export interface ParsedImportFile {

@@ -49,6 +49,8 @@ interface CartState {
   // -- actions --
   setCustomer: (customer: CartCustomer | null) => void;
   addProduct: (line: Omit<CartLine, "quantityBoxes" | "quantityItems" | "note" | "linePriceCents">) => void;
+  /** Calculator flow: insert or replace a full line (quantities + price). */
+  upsertLine: (line: CartLine) => void;
   setBoxes: (productId: string, boxes: number) => void;
   setItems: (productId: string, items: number) => void;
   setLinePrice: (productId: string, cents: number) => void;
@@ -97,6 +99,15 @@ export const useCartStore = create<CartState>()(
             ],
           };
         }),
+
+      upsertLine: (line) =>
+        set((state) => ({
+          items: state.items.some((item) => item.productId === line.productId)
+            ? state.items.map((item) =>
+                item.productId === line.productId ? line : item
+              )
+            : [...state.items, line],
+        })),
 
       setBoxes: (productId, boxes) =>
         set((state) => ({

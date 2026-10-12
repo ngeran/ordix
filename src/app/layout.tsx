@@ -3,20 +3,22 @@
 // ============================================================
 
 import type { Metadata, Viewport } from "next";
-import { Outfit } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { auth } from "@/lib/auth";
 import { AppShell } from "@/components/layout/app-shell";
 import { ToastViewport } from "@/components/ui/toast";
 import "./globals.css";
 
 // ============================================================
-// SECTION: Brand font — Outfit (geometric sans, great at small
-// sizes on warehouse tablets and large on phones)
+// SECTION: Brand font — Plus Jakarta Sans (Tactile Warehouse OS)
+// ------------------------------------------------------------
+// Wide apertures and clean stroke distinctions keep 0/O and 1/l
+// unambiguous on warehouse tablets and handheld scanners.
 // ============================================================
 
-const outfit = Outfit({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  variable: "--font-outfit",
+  variable: "--font-jakarta",
   display: "swap",
 });
 
@@ -65,8 +67,9 @@ const themeInitScript = `
 (function () {
   try {
     var saved = localStorage.getItem("ordix-theme");
-    var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    if (saved === "dark" || (!saved && prefersDark)) {
+    // Dark-first: the flagship Tactile Warehouse OS theme applies
+    // unless the user explicitly chose light.
+    if (saved === "dark" || !saved) {
       document.documentElement.classList.add("dark");
     }
   } catch (e) {}
@@ -91,7 +94,7 @@ export default async function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className={`${outfit.variable} antialiased`}>
+      <body className={`${jakarta.variable} antialiased`}>
         <AppShell user={session?.user ?? null}>{children}</AppShell>
         <ToastViewport />
       </body>

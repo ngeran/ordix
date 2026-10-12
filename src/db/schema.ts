@@ -143,6 +143,10 @@ export const products = sqliteTable(
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     /** Optional barcode — scanned or typed to find the product. */
     barcode: text("barcode"),
+    /** Pieces per sealed box (κουτιά ↔ τεμάχια for the calculator). */
+    itemsPerBox: integer("items_per_box"),
+    /** Physical storage spot shown on cards ("Rack C-04", "Bin B-12"). */
+    binLocation: text("bin_location"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),

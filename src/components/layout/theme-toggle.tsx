@@ -53,3 +53,6 @@ export function ThemeToggle() {
     </Button>
   );
 }
+
+// Toggle writes the explicit choice; the bootstrap script defaults
+// to dark when nothing is saved (see root layout themeInitScript).
