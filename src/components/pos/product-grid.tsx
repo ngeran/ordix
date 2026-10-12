@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { Boxes, MapPin, Package, Search } from "lucide-react";
+import { Boxes, Package, Search } from "lucide-react";
 import type { Category } from "@/db/schema";
 import type { ProductWithCategory } from "@/types";
 import { useT } from "@/lib/i18n";
@@ -177,12 +177,6 @@ function PartCard({
           <span className="rounded border border-border bg-surface-container-high px-2.5 py-1 font-mono text-xs font-bold text-primary">
             {product.partNumber}
           </span>
-          {product.binLocation && (
-            <span className="flex items-center gap-1 rounded bg-surface-container px-2.5 py-0.5 font-mono text-xs font-semibold text-on-surface-muted">
-              <MapPin className="h-3.5 w-3.5 text-tertiary" aria-hidden />
-              {product.binLocation}
-            </span>
-          )}
         </div>
         <div>
           <h3 className="text-base font-extrabold leading-snug text-on-surface">

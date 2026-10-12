@@ -85,7 +85,6 @@ export function PosScreen() {
       productId: product.id,
       partNumber: product.partNumber,
       name: product.name,
-      binLocation: product.binLocation,
       piecesPerBox: Math.max(1, product.itemsPerBox ?? 1),
       boxes: existing?.quantityBoxes ?? 1,
       items: existing?.quantityItems ?? 0,

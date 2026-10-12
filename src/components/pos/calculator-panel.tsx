@@ -25,7 +25,6 @@ export interface ActivePart {
   productId: string;
   partNumber: string;
   name: string;
-  binLocation: string | null;
   /** Pieces per sealed box (κουτί). */
   piecesPerBox: number;
   boxes: number;
@@ -72,7 +71,6 @@ export function CalculatorPanel({ part, setPart, onApply }: CalculatorPanelProps
           </h4>
           <span className="mt-0.5 block font-mono text-xs text-on-surface-muted">
             {part.partNumber}
-            {part.binLocation ? ` · ${part.binLocation}` : ""}
           </span>
         </div>
         <span className="shrink-0 rounded-lg bg-success-soft px-2.5 py-1 font-mono text-xs font-bold text-success">

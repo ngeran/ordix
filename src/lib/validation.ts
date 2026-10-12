@@ -79,8 +79,6 @@ export const productCreateSchema = z.object({
   barcode: optionalText,
   /** Pieces per sealed box (drives the order calculator). */
   itemsPerBox: z.coerce.number().int().min(0).max(100_000).optional().nullable(),
-  /** Physical storage spot ("Rack C-04"). */
-  binLocation: optionalText,
   categoryId: uuid,
   isActive: z.boolean().default(true),
 });

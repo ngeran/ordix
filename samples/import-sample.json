@@ -18,15 +18,13 @@
       "partNumber": "ALU-PRF-4040",
       "name": "T-Slot Profile 40×40 (6m bar)",
       "category": "Aluminum Profiles",
-      "itemsPerBox": 6,
-      "binLocation": "Rack C-04"
+      "itemsPerBox": 6
     },
     {
       "partNumber": "LOCK-MP-R70",
       "name": "Multipoint Lock R70 35mm",
       "category": "Locking Mechanisms",
-      "itemsPerBox": 10,
-      "binLocation": "Shelf D-03"
+      "itemsPerBox": 10
     }
   ]
 }

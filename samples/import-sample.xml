@@ -20,14 +20,12 @@
       <name>T-Slot Profile 40×40 (6m bar)</name>
       <category>Aluminum Profiles</category>
       <itemsPerBox>6</itemsPerBox>
-      <binLocation>Rack C-04</binLocation>
     </product>
     <product>
       <partNumber>LOCK-MP-R70</partNumber>
       <name>Multipoint Lock R70 35mm</name>
       <category>Locking Mechanisms</category>
       <itemsPerBox>10</itemsPerBox>
-      <binLocation>Shelf D-03</binLocation>
     </product>
   </products>
 </ordix>

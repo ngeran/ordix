@@ -49,7 +49,6 @@ export function ProductFormDialog({
   const [categoryId, setCategoryId] = useState("");
   const [barcode, setBarcode] = useState("");
   const [itemsPerBox, setItemsPerBox] = useState("");
-  const [binLocation, setBinLocation] = useState("");
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -62,7 +61,6 @@ export function ProductFormDialog({
       setCategoryId(product.categoryId);
       setBarcode(product.barcode ?? "");
       setItemsPerBox(product.itemsPerBox ? String(product.itemsPerBox) : "");
-      setBinLocation(product.binLocation ?? "");
       setDescription(product.description ?? "");
       setIsActive(product.isActive);
     } else {
@@ -71,7 +69,6 @@ export function ProductFormDialog({
       setCategoryId(categories[0]?.id ?? "");
       setBarcode("");
       setItemsPerBox("");
-      setBinLocation("");
       setDescription("");
       setIsActive(true);
     }
@@ -90,7 +87,6 @@ export function ProductFormDialog({
         categoryId,
         barcode: barcode.trim() || undefined,
         itemsPerBox: itemsPerBox ? Number(itemsPerBox) : null,
-        binLocation: binLocation.trim() || undefined,
         description: description.trim() || undefined,
         isActive,
       };
@@ -163,14 +159,6 @@ export function ProductFormDialog({
             value={itemsPerBox}
             onChange={(event) => setItemsPerBox(event.target.value)}
             placeholder="e.g. 25"
-          />
-        </Field>
-        <Field label={`${t("products.binLocation")} (${t("common.optional")})`} htmlFor="p-bin">
-          <Input
-            id="p-bin"
-            value={binLocation}
-            onChange={(event) => setBinLocation(event.target.value)}
-            placeholder="Rack C-04"
           />
         </Field>
 
