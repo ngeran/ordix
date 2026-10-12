@@ -7,8 +7,7 @@
 import { useState } from "react";
 import { CheckCircle2, ReceiptText, Trash2, X } from "lucide-react";
 import { useCartStore } from "@/stores/cart-store";
-import { useLocale, useT } from "@/lib/i18n";
-import { formatMoney } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -33,7 +32,6 @@ interface CartPanelProps {
 
 export function CartPanel({ placing, onSubmit, onClose }: CartPanelProps) {
   const t = useT();
-  const locale = useLocale();
 
   const items = useCartStore((state) => state.items);
   const notes = useCartStore((state) => state.notes);
@@ -45,7 +43,6 @@ export function CartPanel({ placing, onSubmit, onClose }: CartPanelProps) {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const totalCents = items.reduce((sum, item) => sum + item.linePriceCents, 0);
   const totalUnits = items.reduce(
     (sum, item) => sum + item.quantityBoxes + item.quantityItems,
     0
@@ -60,10 +57,7 @@ export function CartPanel({ placing, onSubmit, onClose }: CartPanelProps) {
     : t("pos.confirmPlaceTitle");
   const confirmBody = appendOrderId
     ? t("pos.confirmAppendBody", { units: totalUnits, number: appendOrderLabel ?? "" })
-    : t("pos.confirmPlaceBody", {
-        units: totalUnits,
-        total: formatMoney(totalCents, locale),
-      });
+    : t("pos.confirmPlaceBody", { units: totalUnits });
 
   return (
     <div className="flex flex-col rounded-2xl border border-border bg-surface-container-low p-4 shadow-card">
@@ -152,18 +146,16 @@ export function CartPanel({ placing, onSubmit, onClose }: CartPanelProps) {
                     {item.quantityItems} {t("pos.items")}
                   </span>
                 </div>
-                {item.linePriceCents > 0 && (
-                  <span className="font-mono text-sm font-extrabold text-on-surface">
-                    {formatMoney(item.linePriceCents, locale)}
-                  </span>
-                )}
+                <span className="font-mono text-sm font-extrabold text-on-surface">
+                  = {item.quantityBoxes + item.quantityItems}
+                </span>
               </div>
             </div>
           ))
         )}
       </div>
 
-      {/* -- Footer: order note, total, giant green confirm -- */}
+      {/* -- Footer: order note, giant green confirm -- */}
       <div className="flex flex-col gap-3 border-t border-border pt-3">
         <Input
           value={notes ?? ""}
@@ -171,11 +163,6 @@ export function CartPanel({ placing, onSubmit, onClose }: CartPanelProps) {
           placeholder={t("pos.orderNotes")}
           aria-label={t("pos.orderNotes")}
         />
-
-        <div className="flex items-center justify-between text-lg font-bold">
-          <span>{t("common.total")}</span>
-          <span>{formatMoney(totalCents, locale)}</span>
-        </div>
 
         <Button
           variant="success"

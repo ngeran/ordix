@@ -76,8 +76,6 @@ export async function POST(
           status: "completed",
           completedAt: now,
           paidAt: now,
-          paymentMethod: input.paymentMethod ?? null,
-          paymentNote: input.paymentNote ?? null,
           closedById: user.id,
           updatedAt: now,
         })
@@ -88,7 +86,7 @@ export async function POST(
         fromStatus: order.status,
         toStatus: "completed",
         userId: user.id,
-        note: `Payment collected${input.paymentMethod ? ` (${input.paymentMethod})` : ""}${
+        note: `Order completed${
           order.status === "in_production" ? " — production auto-completed at close" : ""
         }${input.force ? " — FORCED close" : ""}`,
       }),

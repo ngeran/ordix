@@ -12,7 +12,7 @@ import type { OrderSummary } from "@/types";
 import { ORDER_MAIN_FLOW, STATUS_META } from "@/lib/order-status";
 import { usePolling } from "@/lib/use-polling";
 import { useLocale, useT } from "@/lib/i18n";
-import { cn, formatMoney, formatRelativeTime } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -184,7 +184,6 @@ function OrderCard({
           <span className="text-on-surface-muted">
             {order.itemCount} {t("common.items")} · {order.totalUnits} {t("common.units")}
           </span>
-          <span className="font-bold">{formatMoney(order.totalCents, locale)}</span>
         </div>
       </Link>
     </li>

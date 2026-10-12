@@ -12,7 +12,7 @@
 // tablet can never show yesterday's stock as current.
 // ============================================================
 
-const CACHE_NAME = "ordix-v2";
+const CACHE_NAME = "ordix-v3";
 const OFFLINE_URL = "/offline.html";
 
 // Preinstalled at activate: the offline shell + branding assets.

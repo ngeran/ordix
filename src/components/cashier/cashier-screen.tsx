@@ -9,14 +9,13 @@ import Link from "next/link";
 import { Banknote, CheckCircle2 } from "lucide-react";
 import type { OrderSummary } from "@/types";
 import { usePolling } from "@/lib/use-polling";
-import { useLocale, useT } from "@/lib/i18n";
-import { formatMoney } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingArea } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/orders/status-badge";
-import { PaymentDialog } from "@/components/cashier/payment-dialog";
+import { CloseOrderDialog } from "@/components/cashier/close-order-dialog";
 
 // ============================================================
 // SECTION: Cashier screen
@@ -27,12 +26,11 @@ import { PaymentDialog } from "@/components/cashier/payment-dialog";
 //      with ONE giant button opening the payment dialog
 //   2. "Completed today" — closed orders for the end-of-day tally
 // The same close action is also available on each order's detail
-// page (shared PaymentDialog component).
+// page (shared CloseOrderDialog component).
 // ============================================================
 
 export function CashierScreen() {
   const t = useT();
-  const locale = useLocale();
 
   const { data: activeOrders } = usePolling<OrderSummary[]>(
     "/api/orders?scope=active",
@@ -82,12 +80,9 @@ export function CashierScreen() {
                     {order.customerName ?? "—"}
                   </p>
                 </div>
-                <span className="text-xl font-bold">
-                  {formatMoney(order.totalCents, locale)}
-                </span>
                 <Button size="lg" onClick={() => setClosingOrder(order)}>
                   <Banknote className="h-5 w-5" />
-                  {t("cashier.collect")}
+                  {t("cashier.close")}
                 </Button>
               </Card>
             </li>
@@ -112,9 +107,6 @@ export function CashierScreen() {
                   <span className="min-w-0 flex-1 truncate text-on-surface-muted">
                     {order.customerName ?? "—"}
                   </span>
-                  <span className="font-bold">
-                    {formatMoney(order.totalCents, locale)}
-                  </span>
                 </Card>
               </li>
             ))}
@@ -123,7 +115,7 @@ export function CashierScreen() {
       )}
 
       {/* -- Payment dialog (shared with the order detail page) -- */}
-      <PaymentDialog order={closingOrder} onClose={() => setClosingOrder(null)} />
+      <CloseOrderDialog order={closingOrder} onClose={() => setClosingOrder(null)} />
     </div>
   );
 }

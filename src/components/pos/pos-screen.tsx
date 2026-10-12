@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { ReceiptText, UserRound, X } from "lucide-react";
 import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
-import { useLocale, useT } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
 import { useCartStore } from "@/stores/cart-store";
 import { toast } from "@/stores/toast-store";
 import type { Category } from "@/db/schema";
@@ -17,7 +17,7 @@ import type {
   OrderDetail,
   ProductWithCategory,
 } from "@/types";
-import { cn, formatMoney } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { ProductGrid } from "@/components/pos/product-grid";
 import { CartPanel } from "@/components/pos/cart-panel";
 import { CustomerPicker } from "@/components/pos/customer-picker";
@@ -40,7 +40,6 @@ import { LoadingArea } from "@/components/ui/spinner";
 
 export function PosScreen() {
   const t = useT();
-  const locale = useLocale();
   const router = useRouter();
 
   // -- Server data: the whole active catalog (filtered client-side) --
@@ -62,11 +61,6 @@ export function PosScreen() {
   const clearCart = useCartStore((state) => state.clearCart);
 
   const lineCount = items.length;
-  const totalCents = items.reduce(
-    (sum, item) => sum + item.linePriceCents,
-    0
-  );
-
   // -- Calculator state (the tapped part) --
   const [activePart, setActivePart] = useState<ActivePart | null>(null);
 
@@ -265,8 +259,6 @@ export function PosScreen() {
       >
         <ReceiptText className="h-6 w-6" />
         <span>{lineCount}</span>
-        <span>·</span>
-        <span>{formatMoney(totalCents, locale)}</span>
       </button>
 
       {/* Drawer (below xl): calculator + tray stacked */}

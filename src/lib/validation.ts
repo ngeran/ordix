@@ -140,8 +140,6 @@ export const itemActionSchema = z.discriminatedUnion("action", [
  * active line is produced (admin may force in exceptional cases).
  */
 export const closeOrderSchema = z.object({
-  paymentMethod: z.enum(["cash", "card", "transfer"]).optional(),
-  paymentNote: optionalText,
   /** Admin-only bypass for the all-items-completed rule. */
   force: z.boolean().default(false),
 });

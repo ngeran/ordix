@@ -32,7 +32,7 @@ import { allowedTransitions, ORDER_MAIN_FLOW, STATUS_META, mainFlowIndex } from 
 import { usePolling } from "@/lib/use-polling";
 import { api, showErrorToast } from "@/lib/api-client";
 import { useLocale, useT } from "@/lib/i18n";
-import { cn, formatDateTime, formatMoney, formatRelativeTime } from "@/lib/utils";
+import { cn, formatDateTime, formatRelativeTime } from "@/lib/utils";
 import { useCartStore } from "@/stores/cart-store";
 import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,7 @@ import { Field } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { LoadingArea } from "@/components/ui/spinner";
 import { StatusBadge } from "@/components/orders/status-badge";
-import { PaymentDialog } from "@/components/cashier/payment-dialog";
+import { CloseOrderDialog } from "@/components/cashier/close-order-dialog";
 
 // ============================================================
 // SECTION: Order detail screen
@@ -171,9 +171,6 @@ export function OrderDetailScreen({
         <span className="text-sm text-on-surface-muted">
           {formatRelativeTime(order.placedAt, locale)}
         </span>
-        <span className="ml-auto text-lg font-bold">
-          {formatMoney(order.totalCents, locale)}
-        </span>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-x-5 gap-y-1 text-sm text-on-surface-muted">
@@ -252,10 +249,6 @@ export function OrderDetailScreen({
                     : item.quantityBoxes > 0
                       ? `${item.quantityBoxes} ${t("pos.boxes")}`
                       : `${item.quantityItems || item.quantity} ${t("pos.items")}`;
-                const lineTotal =
-                  item.lineTotalCents > 0
-                    ? item.lineTotalCents
-                    : item.unitPriceCents * item.quantity;
                 return (
                 <li key={item.id} className={cn("px-4 py-3", item.status === "voided" && "opacity-50")}>
                   <div className="flex items-start gap-3">
@@ -311,8 +304,7 @@ export function OrderDetailScreen({
                       </span>
                     )}
 
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span className="text-sm font-bold">{formatMoney(lineTotal, locale)}</span>
+                    <div className="flex shrink-0 items-center">
                       {canVoid && item.status === "active" && (
                         <Button
                           variant="ghost"
@@ -551,7 +543,7 @@ export function OrderDetailScreen({
       />
 
       {/* Cashier close (same person who took the order) */}
-      <PaymentDialog
+      <CloseOrderDialog
         order={closingOrder}
         onClose={() => setClosingOrder(null)}
         onClosed={refresh}

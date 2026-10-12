@@ -97,7 +97,7 @@ const en = {
   "pos.oversellBlocked": "Only {count} available for {name}",
   "pos.confirmPlaceTitle": "Place order?",
   "pos.confirmPlaceBody":
-    "{units} units · {total}. The order goes straight to production.",
+    "{units} units. The order goes straight to production.",
   "pos.confirmAppendTitle": "Append round?",
   "pos.confirmAppendBody": "{units} units will be added to order {number}.",
   "pos.perUnit": "{price} / {unit}",
@@ -294,6 +294,8 @@ const en = {
 
   // -- Cashier (ταμείο) --
   "cashier.title": "Cashier",
+  "cashier.close": "Close order",
+  "cashier.confirmTitle": "Complete this order?",
   "cashier.ready": "Waiting for payment",
   "cashier.collect": "Collect & close order",
   "cashier.method": "Payment method",
@@ -420,7 +422,7 @@ const el: Record<MessageKey, string> = {
   "pos.oversellBlocked": "Διαθέσιμα μόνο {count} για {name}",
   "pos.confirmPlaceTitle": "Καταχώρηση παραγγελίας;",
   "pos.confirmPlaceBody":
-    "{units} τεμ. · {total}. Η παραγγελία πηγαίνει κατευθείαν στην παραγωγή.",
+    "{units} τεμ. Η παραγγελία πηγαίνει κατευθείαν στην παραγωγή.",
   "pos.confirmAppendTitle": "Προσθήκη γύρου;",
   "pos.confirmAppendBody": "{units} τεμ. θα προστεθούν στην παραγγελία {number}.",
   "pos.perUnit": "{price} / {unit}",
@@ -617,6 +619,8 @@ const el: Record<MessageKey, string> = {
 
   // -- Cashier (ταμείο) --
   "cashier.title": "Ταμείο",
+  "cashier.close": "Κλείσιμο παραγγελίας",
+  "cashier.confirmTitle": "Ολοκλήρωση παραγγελίας;",
   "cashier.ready": "Αναμονή πληρωμής",
   "cashier.collect": "Είσπραξη & ολοκλήρωση",
   "cashier.method": "Τρόπος πληρωμής",

@@ -8,7 +8,6 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 // ============================================================
 // SECTION: Box + Item Split Calculator
@@ -126,26 +125,6 @@ export function CalculatorPanel({ part, setPart, onApply }: CalculatorPanelProps
             onClick={() => patch({ boxes: 0, items: 0 })}
           />
         </div>
-      </div>
-
-      {/* -- Quoted price (€, for the cashier's total) -- */}
-      <div className="mt-3">
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          inputMode="decimal"
-          value={part.linePriceCents ? (part.linePriceCents / 100).toFixed(2) : ""}
-          onChange={(event) =>
-            patch({
-              linePriceCents:
-                Math.round(Number(event.target.value.replace(",", ".")) * 100) || 0,
-            })
-          }
-          placeholder={`${t("pos.linePrice")} 0.00`}
-          aria-label={t("pos.linePrice")}
-          className="text-right font-bold"
-        />
       </div>
 
       {/* -- Apply to the order tray -- */}
