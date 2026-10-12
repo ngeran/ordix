@@ -284,21 +284,26 @@ A few tablets use a few thousand requests/day. The one caveat: on Free, exceedin
 
 ## How it works
 
-### Order lifecycle & stock rules
+### Order lifecycle & stock rules (build-to-order)
 
 ```
 draft (Zustand ticket)
-   └─ POST /api/orders ──► placed ─► preparing ─► prepared ─► boxed ─► ready ─► dispatched ─► completed
-                             │  (stock deducted atomically at this moment)
-                             ├──► on_hold  (resume to any earlier stage)
-                             └──► cancelled (active items restocked automatically)
+   └─ POST /api/orders ──► placed ─► in_production ─► production_complete ─► completed
+     requires a CUSTOMER      │           │                  │                    │
+     (new or existing)        │           │                  │                    └─ cashier collects
+                              │           │                  │                      payment (method + note)
+                              │           └─ production manager clicks each item:
+                              │              pending ─► "▶ Send" ─► in_production ─► "✔ Done" ─► completed
+                              └─ on_hold / cancelled branch off (with audit)
 ```
 
-- **Placement is one D1 batch** (implicit transaction): daily number upsert → order row → item snapshots → guarded stock decrements (`stock >= qty`, can never go negative) → stock movements → timeline event.
-- **Item snapshots** (name, part number, unit price) mean tickets render forever, even if the product is renamed or deactivated later.
-- **Voids** require a reason; stock returns only when `restock_on_void` is enabled (toggle in *Stock* screen).
-- **Overselling** is blocked by default; *Stock → Behavior settings → Allow overselling* flips it to warn-only.
-- Order numbers come from the `order_counters` table (one row per business date) via an atomic `UPSERT … RETURNING` — concurrent placements can never share a number.
+- **Made to order**: placing an order does **not** deduct shelf stock (the `build_to_order` setting controls this — stock screens remain for whatever you track manually).
+- **Placement is one D1 batch** (implicit transaction): daily number upsert → order row → snapshot items → timeline event.
+- **Prices**: each product carries *items per box* + *price per box* + *price per item*; a line with "2 κουτιά + 3 τεμάχια" prices 2×box + 3×piece, snapshotted at order time.
+- **Item snapshots** (name, part number, both unit prices, line total) mean tickets render forever, even if the product is renamed or deactivated later.
+- **The cashier's close is guarded**: only `production_complete` orders close, and only when every active line is produced (admin can force — visibly, on the timeline).
+- Order numbers come from the `order_counters` table (one row per business date) via an atomic `UPSERT … RETURNING`.
+- Pre-build-to-order stages (`preparing…dispatched`) still exist for legacy rows; new orders never use them.
 
 ### Project structure
 
@@ -402,13 +407,64 @@ This export/apply path is a manual runbook for exceptional setups, not an automa
 
 | Task | How |
 |---|---|
-| Add a product | Admin → Products → *New product* |
+| Take an order | Home → **New order** → pick customer (or create) → tap products → set κουτιά/τεμάχια → big green YES |
+| Send items to production | Home → **Production** → tap ▶ on each item (or *Send everything*) |
+| Mark production done | Same screen → tap ✔ per item → then **Production finished** |
+| Collect payment & close | Home → **Cashier** → *Collect & close* → tap method → confirm |
+| Add a customer | Order screen → *Select customer* → *New customer* |
+| Add a product | Admin → Products → *New product* (items/box + per-box/per-item prices) |
+| Bulk-import customers/products | Admin → Import (JSON/XML — see below) |
 | Fix stock after stocktake | Admin → Stock → *Adjust* → "New quantity" + reason |
-| Add items to a live order | Order detail → *Append items* (or the board) → ticket switches to append mode |
-| Pack an order | Order detail (status `prepared`/`boxed`) → tick items → *Mark as boxed* |
-| Hand off to courier | Status `ready` → enter courier + tracking → *Dispatch* |
 | Change UI language | Header `EL/EN` button (per device) |
 | Switch dark mode | Header moon/sun button (per device) |
+
+---
+
+## Importing customers & products (JSON / XML)
+
+**Admin → Import** — paste or upload a file, run **Check first** (dry run: reports created/updated/errors without touching data), then **Import now**.
+
+**Rules:**
+- prices are written in **euros** (`45.50`) and stored as cents
+- customer updates match by **phone**, else by exact **name**; product updates match by **partNumber** (case-insensitive)
+- `category` is created automatically when missing
+- sample files live in [`samples/`](samples/) — `import-sample.json`, `import-sample.xml`
+
+**JSON shape:**
+```json
+{
+  "customers": [
+    { "name": "Νίκος Παπαδόπουλος", "address": "…", "phone": "697…", "email": "…", "comments": "…" }
+  ],
+  "products": [
+    { "partNumber": "ALU-PRF-4040", "name": "T-Slot Profile 40×40", "category": "Aluminum Profiles",
+      "itemsPerBox": 6, "pricePerBox": 171.00, "pricePerItem": 28.50, "stock": 64, "minStock": 20 }
+  ]
+}
+```
+
+**XML shape:**
+```xml
+<ordix>
+  <customers>
+    <customer>
+      <name>Νίκος Παπαδόπουλος</name>
+      <phone>697…</phone>
+      <address>…</address>
+    </customer>
+  </customers>
+  <products>
+    <product>
+      <partNumber>ALU-PRF-4040</partNumber>
+      <name>T-Slot Profile 40×40</name>
+      <category>Aluminum Profiles</category>
+      <itemsPerBox>6</itemsPerBox>
+      <pricePerBox>171.00</pricePerBox>
+      <pricePerItem>28.50</pricePerItem>
+    </product>
+  </products>
+</ordix>
+```
 
 ---
 

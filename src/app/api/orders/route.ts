@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  customers,
   orderEvents,
   orderItems,
   orders,
@@ -14,7 +15,12 @@ import {
 } from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
 import { orderScopeSchema, parseJsonBody, placeOrderSchema } from "@/lib/validation";
-import { allocateDailyNumber, getOrderDetail, listOrders } from "@/lib/order-service";
+import {
+  allocateDailyNumber,
+  computeLinePricing,
+  getOrderDetail,
+  listOrders,
+} from "@/lib/order-service";
 import { getSettings } from "@/lib/settings";
 import { getBusinessDate } from "@/lib/utils";
 
@@ -50,21 +56,18 @@ export async function GET(request: Request) {
 }
 
 // ============================================================
-// SECTION: POST /api/orders — place an order (the critical path)
+// SECTION: POST /api/orders — place a build-to-order order
 // ------------------------------------------------------------
 // Steps, in order:
-//   1. validate the payload (Zod) and load the referenced products
-//   2. enforce availability unless overselling is allowed
+//   1. validate payload (Zod) + load customer and products
+//   2. enforce shelf availability ONLY in sell-from-stock mode
+//      (build-to-order manufactures the goods — no deduction)
 //   3. atomically allocate the daily sequential order number
-//   4. run ONE D1 batch (implicit transaction): order + items +
-//      stock deductions + stock movements + timeline event
+//   4. run ONE D1 batch (implicit transaction): order + snapshot
+//      items (κουτιά/τεμάχια pricing) + [stock deductions] +
+//      [movements] + timeline event
 //   5. return the full order detail
-//
-// The batch makes placement all-or-nothing: a mid-flight failure
-// leaves no orphan order, no half-deducted stock, no stray
-// counter increment visible to users (the counter row may burn a
-// number on a rare crash — acceptable and invisible, since
-// numbers only need to be unique, not gapless).
+// All lines start productionStatus = "pending".
 // ============================================================
 
 export async function POST(request: Request) {
@@ -75,8 +78,25 @@ export async function POST(request: Request) {
   try {
     const db = await getDb();
     const input = await parseJsonBody(request, placeOrderSchema);
+    const settings = await getSettings(db);
 
-    // -- 1. Load products referenced by the ticket --
+    // -- Customer: mandatory in the build-to-order flow --
+    const [customer] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.id, input.customerId))
+      .limit(1);
+    if (!customer) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 400 });
+    }
+    if (!customer.isActive) {
+      return NextResponse.json(
+        { error: `Customer is inactive: ${customer.name}` },
+        { status: 400 }
+      );
+    }
+
+    // -- Load products referenced by the ticket --
     const productIds = [...new Set(input.items.map((item) => item.productId))];
     const productRows = await db
       .select()
@@ -84,8 +104,7 @@ export async function POST(request: Request) {
       .where(inArray(products.id, productIds));
     const productById = new Map(productRows.map((row) => [row.id, row]));
 
-    // -- 2. Validate availability & state --
-    const settings = await getSettings(db);
+    // -- Validate products (and stock only in sell-from-stock mode) --
     for (const item of input.items) {
       const product = productById.get(item.productId);
       if (!product) {
@@ -100,35 +119,48 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-      if (!settings.allowOversell && product.stockQuantity < item.quantity) {
-        return NextResponse.json(
-          {
-            error: `Not enough stock for ${product.name} (available: ${product.stockQuantity})`,
-          },
-          { status: 409 }
-        );
+      if (!settings.buildToOrder && !settings.allowOversell) {
+        const needed =
+          item.quantityBoxes * Math.max(1, product.itemsPerBox ?? 1) +
+          item.quantityItems;
+        if (product.stockQuantity < needed) {
+          return NextResponse.json(
+            {
+              error: `Not enough stock for ${product.name} (available: ${product.stockQuantity})`,
+            },
+            { status: 409 }
+          );
+        }
       }
     }
 
-    // -- 3. Daily sequential number (atomic upsert + returning) --
-    const numberAllocation = await allocateDailyNumber(
-      db,
-      getBusinessDate()
-    );
+    // -- Daily sequential number (atomic upsert + returning) --
+    const numberAllocation = await allocateDailyNumber(db, getBusinessDate());
 
-    // -- 4. Assemble the atomic batch --
+    // -- Assemble the atomic batch --
     const orderId = crypto.randomUUID();
     const placedAt = new Date();
 
-    // Item rows snapshot name/price so tickets survive catalog edits.
+    // Item rows snapshot name + both unit prices + the computed line
+    // total, so tickets render (and totals survive) catalog edits.
     const itemValues = input.items.map((item) => {
       const product = productById.get(item.productId)!;
+      const pricing = computeLinePricing(
+        product,
+        item.quantityBoxes,
+        item.quantityItems
+      );
       return {
         id: crypto.randomUUID(),
         orderId,
         productId: item.productId,
-        quantity: item.quantity,
-        unitPriceCents: product.priceCents,
+        quantity: pricing.totalUnits,
+        quantityBoxes: item.quantityBoxes,
+        quantityItems: item.quantityItems,
+        unitPriceCents: pricing.piecePriceCents,
+        unitPriceBoxCents: pricing.boxPriceCents,
+        unitPriceItemCents: pricing.piecePriceCents,
+        lineTotalCents: pricing.lineTotalCents,
         name: product.name,
         partNumber: product.partNumber,
         note: item.note ?? null,
@@ -136,15 +168,20 @@ export async function POST(request: Request) {
       };
     });
 
-    // Stock is decremented once per product (merged quantities) and
-    // guarded: `stock_quantity >= qty` refuses to go negative even
-    // if a concurrent order won the race after our pre-check.
+    // Piece-equivalent stock is merged per product and only touched
+    // in sell-from-stock mode; guarded against going negative.
     const quantityByProduct = new Map<string, number>();
-    for (const item of input.items) {
-      quantityByProduct.set(
-        item.productId,
-        (quantityByProduct.get(item.productId) ?? 0) + item.quantity
-      );
+    if (!settings.buildToOrder) {
+      for (const item of input.items) {
+        const product = productById.get(item.productId)!;
+        const units =
+          item.quantityBoxes * Math.max(1, product.itemsPerBox ?? 1) +
+          item.quantityItems;
+        quantityByProduct.set(
+          item.productId,
+          (quantityByProduct.get(item.productId) ?? 0) + units
+        );
+      }
     }
 
     const stockStatements = [...quantityByProduct].map(([productId, qty]) =>
@@ -159,14 +196,16 @@ export async function POST(request: Request) {
         )
     );
 
-    const movementValues = [...quantityByProduct].map(([productId, qty]) => ({
-      id: crypto.randomUUID(),
-      productId,
-      delta: -qty,
-      reason: `order:${numberAllocation.orderNumber}`,
-      orderId,
-      userId: user.id,
-    }));
+    const movementValues = settings.buildToOrder
+      ? []
+      : [...quantityByProduct].map(([productId, qty]) => ({
+          id: crypto.randomUUID(),
+          productId,
+          delta: -qty,
+          reason: `order:${numberAllocation.orderNumber}`,
+          orderId,
+          userId: user.id,
+        }));
 
     await db.batch([
       db.insert(orders).values({
@@ -175,10 +214,11 @@ export async function POST(request: Request) {
         dailyNumber: numberAllocation.dailyNumber,
         orderNumber: numberAllocation.orderNumber,
         status: "placed",
-        customerName: input.customerName ?? null,
+        customerId: customer.id,
+        customerName: customer.name,
         notes: input.notes ?? null,
         totalCents: itemValues.reduce(
-          (sum, item) => sum + item.unitPriceCents * item.quantity,
+          (sum, item) => sum + item.lineTotalCents,
           0
         ),
         createdById: user.id,
@@ -186,18 +226,20 @@ export async function POST(request: Request) {
       }),
       db.insert(orderItems).values(itemValues),
       ...stockStatements,
-      db.insert(stockMovements).values(movementValues),
+      ...(movementValues.length
+        ? [db.insert(stockMovements).values(movementValues)]
+        : []),
       db.insert(orderEvents).values({
         id: crypto.randomUUID(),
         orderId,
         fromStatus: null,
         toStatus: "placed",
         userId: user.id,
-        note: null,
+        note: `Customer: ${customer.name}`,
       }),
     ]);
 
-    // -- 5. Return the assembled detail for immediate navigation --
+    // -- Return the assembled detail for immediate navigation --
     const detail = await getOrderDetail(db, orderId);
     return NextResponse.json(detail, { status: 201 });
   } catch (error) {

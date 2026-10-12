@@ -19,10 +19,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 // ============================================================
 // SECTION: Cart panel (the draft ticket)
 // ------------------------------------------------------------
-// Right-side panel on desktop, full-height drawer on smaller
-// screens. Line rows carry a quantity stepper, per-line note and
-// remove action; the footer carries customer/notes fields and
-// the primary submit (place order / append round).
+// Phase 2: each line has TWO steppers — κουτιά (boxes) and
+// τεμάχια (loose pieces) — entered manually, one or both. The
+// footer carries the order note and the single big submit; the
+// CUSTOMER lives in a banner above the panel (pos-screen).
 // ============================================================
 
 interface CartPanelProps {
@@ -38,15 +38,14 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
   const locale = useLocale();
 
   const items = useCartStore((state) => state.items);
-  const customerName = useCartStore((state) => state.customerName);
   const notes = useCartStore((state) => state.notes);
   const appendOrderId = useCartStore((state) => state.appendOrderId);
   const appendOrderLabel = useCartStore((state) => state.appendOrderLabel);
 
-  const setQuantity = useCartStore((state) => state.setQuantity);
+  const setBoxes = useCartStore((state) => state.setBoxes);
+  const setItems = useCartStore((state) => state.setItems);
   const removeLine = useCartStore((state) => state.removeLine);
   const setNote = useCartStore((state) => state.setNote);
-  const setCustomerName = useCartStore((state) => state.setCustomerName);
   const setNotes = useCartStore((state) => state.setNotes);
   const clearCart = useCartStore((state) => state.clearCart);
 
@@ -54,10 +53,17 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const totalCents = items.reduce(
-    (sum, item) => sum + item.unitPriceCents * item.quantity,
+    (sum, item) =>
+      sum +
+      item.quantityBoxes * item.unitPriceBoxCents +
+      item.quantityItems * item.unitPriceItemCents,
     0
   );
-  const totalUnits = items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalUnits = items.reduce(
+    (sum, item) =>
+      sum + item.quantityBoxes * Math.max(1, item.piecesPerBox) + item.quantityItems,
+    0
+  );
 
   const submitLabel = appendOrderId
     ? t("pos.appendRound", { number: appendOrderLabel ?? "" })
@@ -105,7 +111,11 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
         ) : (
           <ul className="space-y-2">
             {items.map((item) => {
-              const overStock = item.quantity > item.availableStock;
+              const pieces = item.quantityBoxes * Math.max(1, item.piecesPerBox) + item.quantityItems;
+              const overStock = pieces > item.availableStock;
+              const lineTotal =
+                item.quantityBoxes * item.unitPriceBoxCents +
+                item.quantityItems * item.unitPriceItemCents;
               return (
                 <li
                   key={item.productId}
@@ -118,7 +128,7 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">{item.name}</p>
                       <p className="font-mono text-xs text-on-surface-muted">
-                        {item.partNumber} · {formatMoney(item.unitPriceCents, locale)}
+                        {item.partNumber}
                       </p>
                     </div>
                     <Button
@@ -131,37 +141,23 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
                     </Button>
                   </div>
 
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    {/* Quantity stepper — full 48px targets with big glyphs */}
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        onClick={() => setQuantity(item.productId, item.quantity - 1)}
-                        aria-label={`${t("common.remove")} 1`}
-                      >
-                        <Minus className="h-6 w-6" />
-                      </Button>
-                      <span className="w-14 text-center text-lg font-bold" aria-live="polite">
-                        {item.quantity}
-                      </span>
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        onClick={() => setQuantity(item.productId, item.quantity + 1)}
-                        aria-label={`${t("common.add")} 1`}
-                      >
-                        <Plus className="h-6 w-6" />
-                      </Button>
-                    </div>
-
-                    <span className="text-lg font-bold">
-                      {formatMoney(item.unitPriceCents * item.quantity, locale)}
-                    </span>
+                  {/* κουτιά + τεμάχια steppers */}
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <Stepper
+                      label={t("pos.boxes")}
+                      value={item.quantityBoxes}
+                      onDec={() => setBoxes(item.productId, item.quantityBoxes - 1)}
+                      onInc={() => setBoxes(item.productId, item.quantityBoxes + 1)}
+                    />
+                    <Stepper
+                      label={t("pos.items")}
+                      value={item.quantityItems}
+                      onDec={() => setItems(item.productId, item.quantityItems - 1)}
+                      onInc={() => setItems(item.productId, item.quantityItems + 1)}
+                    />
                   </div>
 
-                  {/* Note + oversell hint row */}
-                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <div className="mt-2 flex items-center justify-between gap-2">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -171,13 +167,15 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
                       <StickyNote className="h-3.5 w-3.5" />
                       {item.note ? item.note : t("common.note")}
                     </Button>
-                    {overStock && (
-                      <span className="flex items-center gap-1 text-xs font-semibold text-error">
-                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                        {t("pos.stockLeft", { count: item.availableStock })}
-                      </span>
-                    )}
+                    <span className="text-lg font-bold">{formatMoney(lineTotal, locale)}</span>
                   </div>
+
+                  {overStock && (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-error">
+                      <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                      {t("pos.stockLeft", { count: item.availableStock })}
+                    </p>
+                  )}
                 </li>
               );
             })}
@@ -185,14 +183,8 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
         )}
       </div>
 
-      {/* -- Footer: customer, notes, total, submit -- */}
+      {/* -- Footer: order note, total, submit -- */}
       <div className="space-y-3 border-t border-border px-4 py-3">
-        <Input
-          value={customerName ?? ""}
-          onChange={(event) => setCustomerName(event.target.value || null)}
-          placeholder={t("pos.customerName")}
-          aria-label={t("pos.customerName")}
-        />
         <Input
           value={notes ?? ""}
           onChange={(event) => setNotes(event.target.value || null)}
@@ -239,13 +231,8 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
         )}
       </Dialog>
 
-      {/* -- Submit confirmation: one giant YES, one plain NO —
-          impossible to misread, impossible to mis-tap -- */}
-      <Dialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        title={confirmTitle}
-      >
+      {/* -- Submit confirmation: one giant YES, one plain NO -- */}
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} title={confirmTitle}>
         <p className="text-base text-on-surface-muted">{confirmBody}</p>
         <div className="mt-5 space-y-3">
           <Button
@@ -265,6 +252,41 @@ export function CartPanel({ allowOversell, placing, onSubmit, onClose }: CartPan
           </Button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// SECTION: Stepper (one quantity dimension — boxes or pieces)
+// ============================================================
+
+function Stepper({
+  label,
+  value,
+  onDec,
+  onInc,
+}: {
+  label: string;
+  value: number;
+  onDec: () => void;
+  onInc: () => void;
+}) {
+  return (
+    <div className="rounded-xl bg-surface-container-low p-1.5">
+      <p className="text-center text-[11px] font-semibold uppercase tracking-wide text-on-surface-muted">
+        {label}
+      </p>
+      <div className="flex items-center justify-between gap-1">
+        <Button variant="secondary" size="iconSm" onClick={onDec} aria-label={`${label} −1`}>
+          <Minus className="h-4 w-4" />
+        </Button>
+        <span className="min-w-10 text-center text-lg font-bold" aria-live="polite">
+          {value}
+        </span>
+        <Button variant="secondary" size="iconSm" onClick={onInc} aria-label={`${label} +1`}>
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }

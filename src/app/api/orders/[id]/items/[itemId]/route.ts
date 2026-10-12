@@ -6,30 +6,31 @@ import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { asBatch, getDb } from "@/db";
-import { orderEvents, orderItems, orders, products, stockMovements } from "@/db/schema";
+import {
+  orderEvents,
+  orderItems,
+  orders,
+  products,
+  stockMovements,
+} from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
 import { itemActionSchema, parseJsonBody } from "@/lib/validation";
 import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-service";
 import { getSettings } from "@/lib/settings";
 
 // ============================================================
-// SECTION: Stages where single items may still be voided
+// SECTION: Item actions — production clicks + edits
 // ------------------------------------------------------------
-// Voids are for pre-dispatch corrections; once the courier has
-// the box the order is immutable (disputes go through admin).
+//   send_to_production : pending   → in_production  (manager click 1)
+//   complete_production: in_production → completed   (manager click 2)
+//   void               : only while still pending (audit + optional
+//                        restock in sell-from-stock mode)
+//   check              : legacy packing tick (harmless if unused)
+// Sending the first item auto-advances a "placed" order to
+// in_production so the boards stay truthful without a second tap.
 // ============================================================
 
-const VOIDABLE_STATUSES = ["placed", "preparing", "prepared", "boxed"];
-/** Stages where the packing checklist can be ticked. */
-const CHECKABLE_STATUSES = ["prepared", "boxed", "ready"];
-
-// ============================================================
-// SECTION: POST /api/orders/[id]/items/[itemId] — item actions
-// ------------------------------------------------------------
-// action = "void":  reason + who + when are mandatory (audit),
-//                   stock optionally returns per the setting.
-// action = "check": toggles the packing checklist tick.
-// ============================================================
+const VOIDABLE_STATUSES = ["placed", "in_production", "on_hold"];
 
 export async function POST(
   request: Request,
@@ -59,6 +60,99 @@ export async function POST(
     }
 
     // ============================================================
+    // SECTION: Send to production (pending → in_production)
+    // ============================================================
+    if (input.action === "send_to_production") {
+      if (item.status !== "active" || item.productionStatus !== "pending") {
+        return NextResponse.json(
+          { error: "Item is not waiting for production" },
+          { status: 409 }
+        );
+      }
+      const now = new Date();
+      const statements: BatchItem<"sqlite">[] = [
+        db
+          .update(orderItems)
+          .set({
+            productionStatus: "in_production",
+            sentToProductionAt: now,
+            sentToProductionById: user.id,
+          })
+          .where(eq(orderItems.id, itemId)),
+      ];
+
+      // First click moves the whole order out of "placed".
+      if (order.status === "placed") {
+        statements.push(
+          db
+            .update(orders)
+            .set({ status: "in_production", updatedAt: now })
+            .where(eq(orders.id, orderId))
+        );
+        statements.push(
+          db.insert(orderEvents).values({
+            id: crypto.randomUUID(),
+            orderId,
+            fromStatus: "placed",
+            toStatus: "in_production",
+            userId: user.id,
+            note: `Sent to production: ${item.name}`,
+          })
+        );
+      } else {
+        statements.push(
+          db.insert(orderEvents).values({
+            id: crypto.randomUUID(),
+            orderId,
+            fromStatus: order.status,
+            toStatus: order.status,
+            userId: user.id,
+            note: `Sent to production: ${item.name}`,
+          })
+        );
+      }
+
+      await db.batch(asBatch(statements));
+      const detail = await getOrderDetail(db, orderId);
+      return NextResponse.json(detail);
+    }
+
+    // ============================================================
+    // SECTION: Complete production (in_production → completed)
+    // ============================================================
+    if (input.action === "complete_production") {
+      if (item.productionStatus !== "in_production") {
+        return NextResponse.json(
+          { error: "Item is not in production" },
+          { status: 409 }
+        );
+      }
+      const now = new Date();
+      await db.batch(
+        asBatch([
+          db
+            .update(orderItems)
+            .set({
+              productionStatus: "completed",
+              productionCompletedAt: now,
+              productionCompletedById: user.id,
+            })
+            .where(eq(orderItems.id, itemId)),
+          db.insert(orderEvents).values({
+            id: crypto.randomUUID(),
+            orderId,
+            fromStatus: order.status,
+            toStatus: order.status,
+            userId: user.id,
+            note: `Production completed: ${item.name}`,
+          }),
+        ])
+      );
+      const detail = await getOrderDetail(db, orderId);
+      return NextResponse.json(detail);
+    }
+
+    // ============================================================
     // SECTION: Void a single item (with reason → audit + restock)
     // ============================================================
     if (input.action === "void") {
@@ -71,6 +165,14 @@ export async function POST(
       if (!VOIDABLE_STATUSES.includes(order.status)) {
         return NextResponse.json(
           { error: `Items cannot be voided while the order is ${order.status}` },
+          { status: 409 }
+        );
+      }
+      // Produced goods are physical reality — they can't be voided
+      // away, only cancelled via the order.
+      if (item.productionStatus !== "pending") {
+        return NextResponse.json(
+          { error: "Item already sent to production — cancel the order instead" },
           { status: 409 }
         );
       }
@@ -97,8 +199,8 @@ export async function POST(
         }),
       ];
 
-      // Optionally hand the quantity back to the shelf.
-      if (settings.restockOnVoid) {
+      // Restock only matters in sell-from-stock mode.
+      if (!settings.buildToOrder && settings.restockOnVoid) {
         statements.push(
           db
             .update(products)
@@ -125,7 +227,7 @@ export async function POST(
     }
 
     // ============================================================
-    // SECTION: Toggle the packing checklist tick
+    // SECTION: Toggle the (legacy) packing checklist tick
     // ============================================================
     if (input.action === "check") {
       if (item.status !== "active") {
@@ -134,13 +236,6 @@ export async function POST(
           { status: 409 }
         );
       }
-      if (!CHECKABLE_STATUSES.includes(order.status)) {
-        return NextResponse.json(
-          { error: `Packing checklist is not active while the order is ${order.status}` },
-          { status: 409 }
-        );
-      }
-
       await db
         .update(orderItems)
         .set({

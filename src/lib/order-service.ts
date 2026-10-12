@@ -5,6 +5,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import {
+  customers,
   orderCounters,
   orderEvents,
   orderItems,
@@ -13,10 +14,10 @@ import {
   type Order,
   type OrderItem,
   type OrderStatus,
+  type Product,
 } from "@/db/schema";
-import { formatOrderNumber } from "@/lib/order-status";
+import { ACTIVE_ORDER_STATUSES, formatOrderNumber } from "@/lib/order-status";
 import { getBusinessDate } from "@/lib/utils";
-import { ACTIVE_ORDER_STATUSES } from "@/lib/order-status";
 import type { OrderDetail, OrderSummary } from "@/types";
 
 // ============================================================
@@ -24,10 +25,49 @@ import type { OrderDetail, OrderSummary } from "@/types";
 // ------------------------------------------------------------
 // Shared query/mutation building blocks used by the order API
 // routes, kept here so route files stay thin and the rules
-// (number allocation, total recomputation) live in one place.
+// (number allocation, pricing, total recomputation) live in
+// one place.
 // ============================================================
 
 type Database = ReturnType<typeof drizzle>;
+
+// ============================================================
+// SECTION: Build-to-order line pricing (κουτιά / τεμάχια)
+// ------------------------------------------------------------
+// Every line carries boxes, loose items, or both. Pricing rules:
+//   piece price = pricePerItemCents  ?? priceCents (legacy base)
+//   box price   = pricePerBoxCents   ?? piecePrice × itemsPerBox
+//   line total  = boxes × boxPrice + items × piecePrice
+// Snapshots of BOTH unit prices go on the line so catalog edits
+// never change what an order cost.
+// ============================================================
+
+export interface LinePricing {
+  piecePriceCents: number;
+  boxPriceCents: number;
+  lineTotalCents: number;
+  /** Piece-equivalent volume (boxes expand via itemsPerBox). */
+  totalUnits: number;
+}
+
+export function computeLinePricing(
+  product: Product,
+  quantityBoxes: number,
+  quantityItems: number
+): LinePricing {
+  const piecePriceCents = product.pricePerItemCents ?? product.priceCents;
+  const boxPriceCents =
+    product.pricePerBoxCents ??
+    piecePriceCents * Math.max(1, product.itemsPerBox ?? 1);
+  return {
+    piecePriceCents,
+    boxPriceCents,
+    lineTotalCents:
+      quantityBoxes * boxPriceCents + quantityItems * piecePriceCents,
+    totalUnits:
+      quantityBoxes * Math.max(1, product.itemsPerBox ?? 1) + quantityItems,
+  };
+}
 
 // ============================================================
 // SECTION: Daily order-number allocation
@@ -63,8 +103,9 @@ export async function allocateDailyNumber(
 // SECTION: Total recomputation
 // ------------------------------------------------------------
 // The stored `totalCents` is always the sum of *active* (non-
-// voided) items — recomputed after placement, appends and voids
-// so a stale client can never persist a wrong total.
+// voided) line totals — recomputed after placement, appends,
+// voids and production edits so a stale client can never persist
+// a wrong total.
 // ============================================================
 
 export async function recalculateOrderTotal(
@@ -73,7 +114,7 @@ export async function recalculateOrderTotal(
 ): Promise<number> {
   const [row] = await db
     .select({
-      total: sql<number>`coalesce(sum(${orderItems.unitPriceCents} * ${orderItems.quantity}), 0)`,
+      total: sql<number>`coalesce(sum(${orderItems.lineTotalCents}), 0)`,
     })
     .from(orderItems)
     .where(
@@ -103,9 +144,9 @@ export async function getOrder(db: Database, orderId: string): Promise<Order | n
 }
 
 /**
- * Board/history list: orders with item aggregates and the
- * creator's name. `scope` splits the live board (active) from
- * history without duplicating filter logic in clients.
+ * Board/history list: orders with item aggregates, the creator's
+ * name and the customer name (Phase 2 customer record preferred,
+ * legacy free-text as fallback).
  */
 export async function listOrders(
   db: Database,
@@ -135,16 +176,21 @@ export async function listOrders(
     .select({
       order: orders,
       createdByName: users.name,
+      customerRecordName: customers.name,
     })
     .from(orders)
     .leftJoin(users, eq(users.id, orders.createdById))
+    .leftJoin(customers, eq(customers.id, orders.customerId))
     .where(and(scopeClause, statusClause, dateClause))
     .orderBy(scope === "active" ? orders.placedAt : desc(orders.placedAt))
     .limit(limit);
 
   if (rows.length === 0) return [];
 
-  // -- Aggregate items per order in one grouped query --
+  // -- Aggregate items per order in one grouped query.
+  // `quantity` is the piece-equivalent total on every row (legacy
+  // rows were placed with it; new rows store the expanded count),
+  // so a plain sum covers both eras. --
   const orderIds = rows.map((row) => row.order.id);
   const aggregates = await db
     .select({
@@ -165,6 +211,7 @@ export async function listOrders(
 
   return rows.map((row) => ({
     ...row.order,
+    customerName: row.customerRecordName ?? row.order.customerName ?? null,
     createdByName: row.createdByName ?? null,
     itemCount: Number(aggByOrder.get(row.order.id)?.itemCount ?? 0),
     totalUnits: Number(aggByOrder.get(row.order.id)?.totalUnits ?? 0),
@@ -177,9 +224,14 @@ export async function getOrderDetail(
   orderId: string
 ): Promise<OrderDetail | null> {
   const [orderRow] = await db
-    .select({ order: orders, createdByName: users.name })
+    .select({
+      order: orders,
+      createdByName: users.name,
+      customerRecordName: customers.name,
+    })
     .from(orders)
     .leftJoin(users, eq(users.id, orders.createdById))
+    .leftJoin(customers, eq(customers.id, orders.customerId))
     .where(eq(orders.id, orderId))
     .limit(1);
   if (!orderRow) return null;
@@ -209,8 +261,20 @@ export async function getOrderDetail(
     : [];
   const nameById = new Map(actors.map((actor) => [actor.id, actor.name]));
 
+  // -- Customer record (address/phone shown on the detail page) --
+  let customer = null;
+  if (orderRow.order.customerId) {
+    const [record] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.id, orderRow.order.customerId))
+      .limit(1);
+    customer = record ?? null;
+  }
+
   return {
     ...orderRow.order,
+    customerName: orderRow.customerRecordName ?? orderRow.order.customerName ?? null,
     createdByName: orderRow.createdByName ?? null,
     items,
     events: rawEvents.map((event) => ({
@@ -218,6 +282,16 @@ export async function getOrderDetail(
       userId: undefined,
       userName: event.userId ? nameById.get(event.userId) ?? null : null,
     })),
+    customer: customer
+      ? {
+          id: customer.id,
+          name: customer.name,
+          address: customer.address,
+          phone: customer.phone,
+          email: customer.email,
+          comments: customer.comments,
+        }
+      : null,
   };
 }
 

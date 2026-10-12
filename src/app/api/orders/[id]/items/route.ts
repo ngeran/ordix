@@ -6,27 +6,29 @@ import { NextResponse } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { asBatch, getDb } from "@/db";
-import { orderEvents, orderItems, orders, products, stockMovements } from "@/db/schema";
+import { orderEvents, orderItems, products, stockMovements } from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
 import { appendItemsSchema, parseJsonBody } from "@/lib/validation";
-import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-service";
+import {
+  computeLinePricing,
+  getOrder,
+  getOrderDetail,
+  recalculateOrderTotal,
+} from "@/lib/order-service";
 import { getSettings } from "@/lib/settings";
 
 // ============================================================
 // SECTION: Order stages that still accept appended rounds
-// ------------------------------------------------------------
-// Once the box is sealed for the courier (ready), the order is
-// frozen — new items belong on a new order.
 // ============================================================
 
-const APPENDABLE_STATUSES = ["placed", "preparing", "prepared", "boxed", "on_hold"];
+const APPENDABLE_STATUSES = ["placed", "in_production", "on_hold"];
 
 // ============================================================
 // SECTION: POST /api/orders/[id]/items — append a round
 // ------------------------------------------------------------
-// Manolis-POS "rounds": add more items to an open order. Each
-// append gets the next round number, stock is deducted exactly
-// like on placement, and the order total is recomputed.
+// Same pricing/validation rules as placement: boxes + items per
+// line, snapshots on write, stock only touched in sell-from-stock
+// mode, production status starts at "pending".
 // ============================================================
 
 export async function POST(
@@ -53,7 +55,7 @@ export async function POST(
       );
     }
 
-    // -- Load & validate products (same rules as placement) --
+    // -- Load & validate products --
     const productIds = [...new Set(input.items.map((item) => item.productId))];
     const productRows = await db
       .select()
@@ -76,13 +78,18 @@ export async function POST(
           { status: 400 }
         );
       }
-      if (!settings.allowOversell && product.stockQuantity < item.quantity) {
-        return NextResponse.json(
-          {
-            error: `Not enough stock for ${product.name} (available: ${product.stockQuantity})`,
-          },
-          { status: 409 }
-        );
+      if (!settings.buildToOrder && !settings.allowOversell) {
+        const needed =
+          item.quantityBoxes * Math.max(1, product.itemsPerBox ?? 1) +
+          item.quantityItems;
+        if (product.stockQuantity < needed) {
+          return NextResponse.json(
+            {
+              error: `Not enough stock for ${product.name} (available: ${product.stockQuantity})`,
+            },
+            { status: 409 }
+          );
+        }
       }
     }
 
@@ -93,15 +100,25 @@ export async function POST(
       .where(eq(orderItems.orderId, orderId));
     const nextRound = Number(roundRow?.maxRound ?? 0) + 1;
 
-    // -- Batch: items + guarded stock deduction + movements + event --
+    // -- Batch: items + [guarded stock deduction] + [movements] + event --
     const itemValues = input.items.map((item) => {
       const product = productById.get(item.productId)!;
+      const pricing = computeLinePricing(
+        product,
+        item.quantityBoxes,
+        item.quantityItems
+      );
       return {
         id: crypto.randomUUID(),
         orderId,
         productId: item.productId,
-        quantity: item.quantity,
-        unitPriceCents: product.priceCents,
+        quantity: pricing.totalUnits,
+        quantityBoxes: item.quantityBoxes,
+        quantityItems: item.quantityItems,
+        unitPriceCents: pricing.piecePriceCents,
+        unitPriceBoxCents: pricing.boxPriceCents,
+        unitPriceItemCents: pricing.piecePriceCents,
+        lineTotalCents: pricing.lineTotalCents,
         name: product.name,
         partNumber: product.partNumber,
         note: item.note ?? null,
@@ -110,11 +127,17 @@ export async function POST(
     });
 
     const quantityByProduct = new Map<string, number>();
-    for (const item of input.items) {
-      quantityByProduct.set(
-        item.productId,
-        (quantityByProduct.get(item.productId) ?? 0) + item.quantity
-      );
+    if (!settings.buildToOrder) {
+      for (const item of input.items) {
+        const product = productById.get(item.productId)!;
+        const units =
+          item.quantityBoxes * Math.max(1, product.itemsPerBox ?? 1) +
+          item.quantityItems;
+        quantityByProduct.set(
+          item.productId,
+          (quantityByProduct.get(item.productId) ?? 0) + units
+        );
+      }
     }
 
     const statements: BatchItem<"sqlite">[] = [
@@ -130,16 +153,20 @@ export async function POST(
             )
           )
       ),
-      db.insert(stockMovements).values(
-        [...quantityByProduct].map(([productId, qty]) => ({
-          id: crypto.randomUUID(),
-          productId,
-          delta: -qty,
-          reason: `round:${order.orderNumber}`,
-          orderId,
-          userId: user.id,
-        }))
-      ),
+      ...(quantityByProduct.size
+        ? [
+            db.insert(stockMovements).values(
+              [...quantityByProduct].map(([productId, qty]) => ({
+                id: crypto.randomUUID(),
+                productId,
+                delta: -qty,
+                reason: `round:${order.orderNumber}`,
+                orderId,
+                userId: user.id,
+              }))
+            ),
+          ]
+        : []),
       db.insert(orderEvents).values({
         id: crypto.randomUUID(),
         orderId,

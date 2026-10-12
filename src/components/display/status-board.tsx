@@ -7,20 +7,19 @@
 import { useEffect, useState } from "react";
 import type { OrderStatus } from "@/db/schema";
 import type { OrderSummary } from "@/types";
+import { STATUS_META } from "@/lib/order-status";
 import { usePolling } from "@/lib/use-polling";
 import { useLocale, useT } from "@/lib/i18n";
 import { cn, formatRelativeTime } from "@/lib/utils";
 
 // ============================================================
-// SECTION: Warehouse status board
+// SECTION: Warehouse status board (build-to-order columns)
 // ------------------------------------------------------------
 // Four fixed columns, mapped from order statuses:
-//   QUEUE       ← placed
-//   IN PROGRESS ← preparing
-//   PREPARED    ← prepared, boxed, ready (everything waiting to
-//                 leave; packed boxes still read as "prepared"
-//                 to someone walking the floor)
-//   SHIPPED     ← dispatched (most recent 8, with tracking)
+//   QUEUE      ← placed (submitted, not yet in production)
+//   IN PROGRESS← in_production
+//   COMPLETED  ← production_complete (waiting for the cashier)
+//   PAID       ← completed, today's (most recent 8)
 //
 // Design rules for wall screens: huge type, high contrast, no
 // interaction, no scrolling per column (oldest 6 shown), age
@@ -32,10 +31,11 @@ const AGE_WARN_MIN = 30;
 const AGE_AGE_MAX_MIN = 60;
 /** Rows kept per column — a wall board must never scroll. */
 const MAX_ROWS = 6;
-const MAX_SHIPPED_ROWS = 8;
+const MAX_PAID_ROWS = 8;
 
 export function StatusBoard() {
   const t = useT();
+  const locale = useLocale();
 
   // -- Live data: active orders + recent history (for SHIPPED) --
   const { data: activeOrders, isStale: activeStale } = usePolling<OrderSummary[]>(
@@ -58,27 +58,35 @@ export function StatusBoard() {
     (activeOrders ?? []).filter((order) => order.status === status);
 
   const columns: BoardColumn[] = [
-    { key: "queue", label: t("display.queue"), accent: "bg-sky-500", text: "text-sky-400", orders: byStatus("placed") },
-    { key: "progress", label: t("display.inProgress"), accent: "bg-amber-500", text: "text-amber-400", orders: byStatus("preparing") },
     {
-      key: "prepared",
-      label: t("display.prepared"),
-      accent: "bg-emerald-500",
-      text: "text-emerald-400",
-      orders: [
-        ...byStatus("prepared"),
-        ...byStatus("boxed"),
-        ...byStatus("ready"),
-      ],
+      key: "queue",
+      label: t("production.queue"),
+      accent: "bg-sky-500",
+      text: "text-sky-400",
+      orders: byStatus("placed"),
     },
     {
-      key: "shipped",
-      label: t("display.shipped"),
-      accent: "bg-cyan-500",
-      text: "text-cyan-400",
+      key: "production",
+      label: t("production.working"),
+      accent: "bg-amber-500",
+      text: "text-amber-400",
+      orders: byStatus("in_production"),
+    },
+    {
+      key: "produced",
+      label: STATUS_META.production_complete[locale],
+      accent: "bg-violet-500",
+      text: "text-violet-400",
+      orders: byStatus("production_complete"),
+    },
+    {
+      key: "paid",
+      label: t("cashier.paidToday"),
+      accent: "bg-emerald-500",
+      text: "text-emerald-400",
       orders: (historyOrders ?? [])
-        .filter((order) => order.status === "dispatched")
-        .slice(0, MAX_SHIPPED_ROWS),
+        .filter((order) => order.status === "completed" && order.paidAt !== null)
+        .slice(0, MAX_PAID_ROWS),
     },
   ];
 
@@ -135,8 +143,8 @@ export function StatusBoard() {
               {column.orders.length === 0 ? (
                 <p className="flex h-full items-center justify-center text-lg text-on-surface-muted/50">—</p>
               ) : (
-                column.orders.slice(0, column.key === "shipped" ? MAX_SHIPPED_ROWS : MAX_ROWS).map((order) => (
-                  <BoardCard key={order.id} order={order} shipped={column.key === "shipped"} />
+                column.orders.slice(0, column.key === "paid" ? MAX_PAID_ROWS : MAX_ROWS).map((order) => (
+                  <BoardCard key={order.id} order={order} paid={column.key === "paid"} />
                 ))
               )}
             </div>
@@ -151,19 +159,19 @@ export function StatusBoard() {
 // SECTION: Board card
 // ------------------------------------------------------------
 // One order, readable from across the aisle: giant order number,
-// customer, unit count, age badge (SHIPPED shows courier/tracking
-// instead of age).
+// customer, unit count, age badge (the PAID column shows time
+// since payment instead).
 // ============================================================
 
 interface BoardColumn {
-  key: "queue" | "progress" | "prepared" | "shipped";
+  key: "queue" | "production" | "produced" | "paid";
   label: string;
   accent: string;
   text: string;
   orders: OrderSummary[];
 }
 
-function BoardCard({ order, shipped }: { order: OrderSummary; shipped: boolean }) {
+function BoardCard({ order, paid }: { order: OrderSummary; paid: boolean }) {
   const t = useT();
   const locale = useLocale();
   const ageMinutes = Math.max(0, Math.round((Date.now() - new Date(order.placedAt).getTime()) / 60_000));
@@ -174,16 +182,16 @@ function BoardCard({ order, shipped }: { order: OrderSummary; shipped: boolean }
     <div
       className={cn(
         "rounded-xl border bg-surface-container-lowest p-3",
-        ageHot && !shipped ? "border-error" : ageWarm && !shipped ? "border-warning" : "border-border"
+        ageHot && !paid ? "border-error" : ageWarm && !paid ? "border-warning" : "border-border"
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <p className="font-mono text-xl font-bold leading-tight sm:text-2xl">
           {order.orderNumber}
         </p>
-        {shipped ? (
-          <span className="shrink-0 rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-400">
-            {formatRelativeTime(order.updatedAt, locale)}
+        {paid ? (
+          <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+            {order.paidAt ? formatRelativeTime(order.paidAt, locale) : "—"}
           </span>
         ) : (
           <span
@@ -205,15 +213,9 @@ function BoardCard({ order, shipped }: { order: OrderSummary; shipped: boolean }
         <p className="mt-0.5 truncate text-sm text-on-surface-muted">{order.customerName}</p>
       )}
 
-      {shipped && order.trackingNumber ? (
-        <p className="mt-1 truncate font-mono text-xs text-on-surface-muted">
-          {order.courierName ?? "—"} · {order.trackingNumber}
-        </p>
-      ) : (
-        <p className="mt-1 text-sm font-medium text-on-surface-muted">
-          {order.totalUnits} {t("common.units")} · {order.itemCount} {t("common.items")}
-        </p>
-      )}
+      <p className="mt-1 text-sm font-medium text-on-surface-muted">
+        {order.totalUnits} {t("common.units")} · {order.itemCount} {t("common.items")}
+      </p>
     </div>
   );
 }

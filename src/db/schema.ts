@@ -19,12 +19,17 @@ import {
 // ============================================================
 
 /**
- * Order lifecycle (linear main flow + exceptional states).
- * Main flow: placed → preparing → prepared → boxed → ready →
- * dispatched → completed. `on_hold` / `cancelled` branch off.
+ * Order lifecycle.
+ * Build-to-order main flow (Phase 2): placed → in_production →
+ * production_complete → completed (cashier closes after payment).
+ * The pre-Phase-2 stages (preparing…dispatched) remain in the
+ * enum so legacy rows keep rendering; new orders never use them.
+ * `on_hold` / `cancelled` branch off.
  */
 export const ORDER_STATUSES = [
   "placed",
+  "in_production",
+  "production_complete",
   "preparing",
   "prepared",
   "boxed",
@@ -36,16 +41,28 @@ export const ORDER_STATUSES = [
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
+/** Per-line production tracking (the production manager clicks these). */
+export const PRODUCTION_STATUSES = ["pending", "in_production", "completed"] as const;
+export type ProductionStatus = (typeof PRODUCTION_STATUSES)[number];
+
 /** Line-item states — items are voided individually with an audit trail. */
 export const ORDER_ITEM_STATUSES = ["active", "voided"] as const;
 export type OrderItemStatus = (typeof ORDER_ITEM_STATUSES)[number];
+
+/** Payment methods offered to the cashier at close. */
+export const PAYMENT_METHODS = ["cash", "card", "transfer"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 /** User roles — `admin` manages catalog/stock/settings, `staff` orders. */
 export const USER_ROLES = ["admin", "staff"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 /** Keys for the `app_settings` key/value table. */
-export const SETTING_KEYS = ["allow_oversell", "restock_on_void"] as const;
+export const SETTING_KEYS = [
+  "allow_oversell",
+  "restock_on_void",
+  "build_to_order",
+] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 // ============================================================
@@ -62,6 +79,31 @@ export const users = sqliteTable("users", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ============================================================
+// SECTION: Customers (Phase 2 — every order belongs to one)
+// ============================================================
+
+export const customers = sqliteTable(
+  "customers",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    address: text("address"),
+    phone: text("phone"),
+    email: text("email"),
+    comments: text("comments"),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date())
+      .$onUpdateFn(() => new Date()),
+  },
+  (t) => [index("customers_name_idx").on(t.name)]
+);
 
 // ============================================================
 // SECTION: Catalog — categories & products
@@ -103,8 +145,15 @@ export const products = sqliteTable(
     stockQuantity: integer("stock_quantity").notNull().default(0),
     /** Low-stock alert threshold: alert when stock <= minStock. */
     minStock: integer("min_stock").notNull().default(0),
-    /** Price in integer cents (1250 = €12.50) — never floats. */
+    /** Price in integer cents (1250 = €12.50) — never floats.
+     *  Legacy/base price; Phase 2 adds per-box and per-piece prices. */
     priceCents: integer("price_cents").notNull(),
+    /** Pieces contained in one box (κουτιά ↔ τεμάχια relation). */
+    itemsPerBox: integer("items_per_box"),
+    /** Price for one full box (falls back to pieces pricing if null). */
+    pricePerBoxCents: integer("price_per_box_cents"),
+    /** Price for one loose piece (falls back to priceCents if null). */
+    pricePerItemCents: integer("price_per_item_cents"),
     categoryId: text("category_id")
       .notNull()
       .references(() => categories.id),
@@ -152,7 +201,9 @@ export const orders = sqliteTable(
     /** Denormalized display/search number, e.g. "ORD-20261011-003". */
     orderNumber: text("order_number").notNull(),
     status: text("status", { enum: ORDER_STATUSES }).notNull().default("placed"),
-    /** Optional customer / delivery recipient name. */
+    /** The customer this build-to-order belongs to. */
+    customerId: text("customer_id").references(() => customers.id),
+    /** Legacy free-text customer (pre-Phase-2 orders keep rendering). */
     customerName: text("customer_name"),
     notes: text("notes"),
     /** Server-recomputed total of active (non-voided) items, cents. */
@@ -177,9 +228,16 @@ export const orders = sqliteTable(
     cancelledById: text("cancelled_by_id").references(() => users.id),
     cancelReason: text("cancel_reason"),
 
-    // -- Courier hand-off --
+    // -- Courier hand-off (legacy flow) --
     courierName: text("courier_name"),
     trackingNumber: text("tracking_number"),
+
+    // -- Cashier close (Phase 2) --
+    /** Stamped when the cashier closes the order after payment. */
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    paymentMethod: text("payment_method", { enum: PAYMENT_METHODS }),
+    paymentNote: text("payment_note"),
+    closedById: text("closed_by_id").references(() => users.id),
 
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -210,9 +268,19 @@ export const orderItems = sqliteTable(
     productId: text("product_id")
       .notNull()
       .references(() => products.id),
-    quantity: integer("quantity").notNull(),
-    /** Snapshot price at order time (cents). */
-    unitPriceCents: integer("unit_price_cents").notNull(),
+    /** Legacy single quantity (pre-Phase-2 rows). */
+    quantity: integer("quantity").notNull().default(0),
+    /** Boxes (κουτιά) and loose pieces (τεμάχια) — Phase 2 lines
+     *  carry one or both; legacy rows keep quantity only. */
+    quantityBoxes: integer("quantity_boxes").notNull().default(0),
+    quantityItems: integer("quantity_items").notNull().default(0),
+    /** Snapshot prices at order time (cents).
+     *  unitPriceCents = legacy total-units price; lineTotalCents is
+     *  the authoritative amount for both eras. */
+    unitPriceCents: integer("unit_price_cents").notNull().default(0),
+    unitPriceBoxCents: integer("unit_price_box_cents"),
+    unitPriceItemCents: integer("unit_price_item_cents"),
+    lineTotalCents: integer("line_total_cents").notNull().default(0),
     // -- Snapshots: the ticket must render even if the product is
     //    later renamed or deactivated --
     name: text("name").notNull(),
@@ -223,6 +291,16 @@ export const orderItems = sqliteTable(
     status: text("status", { enum: ORDER_ITEM_STATUSES })
       .notNull()
       .default("active"),
+
+    // -- Production tracking (Phase 2): the production manager
+    //    sends each line to production, then completes it --
+    productionStatus: text("production_status", { enum: PRODUCTION_STATUSES })
+      .notNull()
+      .default("pending"),
+    sentToProductionAt: integer("sent_to_production_at", { mode: "timestamp" }),
+    sentToProductionById: text("sent_to_production_by_id").references(() => users.id),
+    productionCompletedAt: integer("production_completed_at", { mode: "timestamp" }),
+    productionCompletedById: text("production_completed_by_id").references(() => users.id),
     // -- Packing checklist (boxed stage) --
     isChecked: integer("is_checked", { mode: "boolean" })
       .notNull()
@@ -328,6 +406,7 @@ export const appSettings = sqliteTable("app_settings", {
 // ============================================================
 
 export type User = typeof users.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type Order = typeof orders.$inferSelect;

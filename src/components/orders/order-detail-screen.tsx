@@ -11,7 +11,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Ban,
-  CheckCircle2,
+  Banknote,
   Clock,
   PackageCheck,
   Pause,
@@ -81,14 +81,13 @@ export function OrderDetailScreen({
   }
 
   const activeItems = order.items.filter((item) => item.status === "active");
-  const checkedCount = activeItems.filter((item) => item.isChecked).length;
   const nextStage = ORDER_MAIN_FLOW[mainFlowIndex(order.status) + 1];
 
-  // Which stages make the checklist/void/tracking UIs active
-  const packingActive = ["prepared", "boxed"].includes(order.status);
-  const canVoid = ["placed", "preparing", "prepared", "boxed"].includes(order.status);
+  // Void/append stay available until production starts on a line;
+  // legacy stages keep their old affordances for old orders.
+  const canVoid = ["placed", "on_hold"].includes(order.status);
   const isTerminal = ["completed", "cancelled"].includes(order.status);
-  const canAppend = ["placed", "preparing", "prepared", "boxed"].includes(order.status);
+  const canAppend = ["placed", "in_production", "on_hold"].includes(order.status);
 
   // ============================================================
   // SECTION: Mutations
@@ -103,18 +102,6 @@ export function OrderDetailScreen({
       showErrorToast(error, t("error.generic"));
     } finally {
       setBusy(false);
-    }
-  };
-
-  const togglePacked = async (item: OrderItem) => {
-    try {
-      await api.post(`/api/orders/${orderId}/items/${item.id}`, {
-        action: "check",
-        isChecked: !item.isChecked,
-      });
-      refresh();
-    } catch (error) {
-      showErrorToast(error, t("error.generic"));
     }
   };
 
@@ -193,13 +180,41 @@ export function OrderDetailScreen({
         <span className="flex items-center gap-1.5">
           <Clock className="h-4 w-4" aria-hidden /> {formatDateTime(order.placedAt, locale)}
         </span>
-        {order.courierName && (
-          <span className="flex items-center gap-1.5">
-            <Truck className="h-4 w-4" aria-hidden /> {order.courierName}
-            {order.trackingNumber ? ` · ${order.trackingNumber}` : ""}
+        {order.paidAt && (
+          <span className="flex items-center gap-1.5 font-medium text-success">
+            <Banknote className="h-4 w-4" aria-hidden />
+            {t("detail.paidInfo", {
+              method: order.paymentMethod
+                ? t(`cashier.${order.paymentMethod}` as "cashier.cash")
+                : "—",
+              time: formatDateTime(order.paidAt, locale),
+            })}
           </span>
         )}
       </div>
+
+      {/* Customer contact card (Phase 2) */}
+      {order.customer && (order.customer.address || order.customer.phone || order.customer.comments) && (
+        <div className="mb-4 rounded-xl bg-surface-container-low px-4 py-3 text-sm">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">
+            {t("customer.name")}
+          </p>
+          <div className="flex flex-wrap gap-x-5 gap-y-0.5">
+            {order.customer.phone && <span>☎ {order.customer.phone}</span>}
+            {order.customer.address && <span>📍 {order.customer.address}</span>}
+            {order.customer.email && <span>✉ {order.customer.email}</span>}
+            {order.customer.comments && (
+              <span className="italic">“{order.customer.comments}”</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {order.status === "production_complete" && (
+        <p className="mb-4 rounded-xl bg-violet-100 px-4 py-3 text-sm font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+          {t("detail.productionDone")}
+        </p>
+      )}
 
       {order.status === "cancelled" && (
         <p className="mb-4 rounded-xl bg-error-soft px-4 py-3 text-sm font-medium text-error">
@@ -217,68 +232,41 @@ export function OrderDetailScreen({
               <h2 className="font-semibold">
                 {t("nav.orders")} · {activeItems.length} {t("common.items")}
               </h2>
-              {packingActive && (
-                <span className="text-sm font-medium text-on-surface-muted">
-                  {t("detail.packingProgress", { done: checkedCount, count: activeItems.length })}
-                </span>
-              )}
             </div>
 
-            {/* Packing progress bar */}
-            {packingActive && activeItems.length > 0 && (
-              <div className="h-1.5 w-full bg-surface-container">
-                <div
-                  className="h-full bg-success transition-all"
-                  style={{ width: `${(checkedCount / activeItems.length) * 100}%` }}
-                  role="progressbar"
-                  aria-valuenow={checkedCount}
-                  aria-valuemin={0}
-                  aria-valuemax={activeItems.length}
-                />
-              </div>
-            )}
-
             <ul className="divide-y divide-border">
-              {order.items.map((item) => (
+              {order.items.map((item) => {
+                const quantityLabel =
+                  item.quantityBoxes > 0 && item.quantityItems > 0
+                    ? `${item.quantityBoxes} ${t("pos.boxes")} + ${item.quantityItems} ${t("pos.items")}`
+                    : item.quantityBoxes > 0
+                      ? `${item.quantityBoxes} ${t("pos.boxes")}`
+                      : `${item.quantityItems || item.quantity} ${t("pos.items")}`;
+                const lineTotal =
+                  item.lineTotalCents > 0
+                    ? item.lineTotalCents
+                    : item.unitPriceCents * item.quantity;
+                return (
                 <li key={item.id} className={cn("px-4 py-3", item.status === "voided" && "opacity-50")}>
                   <div className="flex items-start gap-3">
-                    {/* Packing checkbox (only during prepared/boxed) */}
-                    {packingActive && item.status === "active" ? (
-                      <button
-                        onClick={() => togglePacked(item)}
-                        aria-label={`${t("detail.packing")}: ${item.name}`}
-                        aria-pressed={item.isChecked}
-                        className={cn(
-                          "mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 transition-colors",
-                          item.isChecked
-                            ? "border-success bg-success text-white"
-                            : "border-border bg-surface hover:border-primary"
-                        )}
-                      >
-                        {item.isChecked && <CheckCircle2 className="h-7 w-7" />}
-                      </button>
-                    ) : (
-                      <span
-                        aria-hidden
-                        className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-container text-base font-bold"
-                      >
-                        {item.quantity}
-                      </span>
-                    )}
+                    <span
+                      aria-hidden
+                      className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-container text-base font-bold"
+                    >
+                      {item.quantityBoxes + item.quantityItems || item.quantity}
+                    </span>
 
                     <div className="min-w-0 flex-1">
                       <p className={cn("text-sm font-semibold", item.status === "voided" && "line-through")}>
                         {item.name}{" "}
-                        <span className="text-on-surface-muted">×{item.quantity}</span>
+                        <span className="text-on-surface-muted">{quantityLabel}</span>
                         {item.round > 1 && (
                           <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary">
                             {t("detail.round", { round: item.round })}
                           </span>
                         )}
                       </p>
-                      <p className="font-mono text-xs text-on-surface-muted">
-                        {item.partNumber} · {formatMoney(item.unitPriceCents, locale)}
-                      </p>
+                      <p className="font-mono text-xs text-on-surface-muted">{item.partNumber}</p>
                       {item.note && (
                         <p className="mt-1 flex items-start gap-1 text-xs text-info">
                           <StickyNote className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
@@ -293,10 +281,28 @@ export function OrderDetailScreen({
                       )}
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span className="text-sm font-bold">
-                        {formatMoney(item.unitPriceCents * item.quantity, locale)}
+                    {/* Production state badge (managed on the production board) */}
+                    {item.status === "active" && (
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                          item.productionStatus === "completed"
+                            ? "bg-success-soft text-success"
+                            : item.productionStatus === "in_production"
+                              ? "bg-warning-soft text-warning"
+                              : "bg-surface-container text-on-surface-muted"
+                        )}
+                      >
+                        {item.productionStatus === "completed"
+                          ? t("detail.produced")
+                          : item.productionStatus === "in_production"
+                            ? t("detail.inProduction")
+                            : t("detail.awaitingProduction")}
                       </span>
+                    )}
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-sm font-bold">{formatMoney(lineTotal, locale)}</span>
                       {canVoid && item.status === "active" && (
                         <Button
                           variant="ghost"
@@ -311,7 +317,8 @@ export function OrderDetailScreen({
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
 
             {canAppend && (
@@ -406,8 +413,12 @@ export function OrderDetailScreen({
             </Card>
           )}
 
-          {/* Courier / tracking card (ready onwards) */}
-          {["ready", "dispatched", "completed"].includes(order.status) && (
+          {/* Courier / tracking card — legacy flow only: new orders
+              end at the cashier, so only show it when courier data
+              already exists (old orders) or a legacy stage is active */}
+          {(order.courierName ||
+            order.trackingNumber ||
+            ["ready", "dispatched"].includes(order.status)) && (
             <TrackingCard
               order={order}
               busy={busy}

@@ -18,6 +18,7 @@ import { errorResponse, requireUser } from "@/lib/api-auth";
 import { parseJsonBody, statusUpdateSchema } from "@/lib/validation";
 import { canTransition, isTerminal } from "@/lib/order-status";
 import { getActiveItems, getOrder, getOrderDetail } from "@/lib/order-service";
+import { getSettings } from "@/lib/settings";
 
 // ============================================================
 // SECTION: Lifecycle timestamp map
@@ -28,6 +29,8 @@ import { getActiveItems, getOrder, getOrderDetail } from "@/lib/order-service";
 
 const STAGE_TIMESTAMP_COLUMN = {
   placed: "placedAt",
+  in_production: null, // stamped per-item; the timeline event covers the order
+  production_complete: null,
   preparing: "preparingAt",
   prepared: "preparedAt",
   boxed: "boxedAt",
@@ -90,12 +93,16 @@ export async function POST(
       orderUpdate.cancelReason = input.note ?? null;
     }
 
-    // -- Cancellation restocks every active item (batch-atomic) --
+    // -- Cancellation: void the lines so totals go to zero; stock is
+    // handed back ONLY in sell-from-stock mode (build-to-order never
+    // deducted anything — production makes the goods). --
+    const settings = await getSettings(db);
+    const isCancel = targetStatus === "cancelled";
     const statements: BatchItem<"sqlite">[] = [
       db.update(orders).set(orderUpdate).where(eq(orders.id, orderId)),
     ];
 
-    if (targetStatus === "cancelled") {
+    if (isCancel) {
       const activeItems = await getActiveItems(db, orderId);
       if (activeItems.length > 0) {
         // 1. Void all active lines with the shared audit fields.
@@ -117,31 +124,33 @@ export async function POST(
             )
         );
 
-        // 2. Return quantities to stock, merged per product.
-        const quantityByProduct = new Map<string, number>();
-        for (const item of activeItems) {
-          quantityByProduct.set(
-            item.productId,
-            (quantityByProduct.get(item.productId) ?? 0) + item.quantity
-          );
-        }
-        for (const [productId, qty] of quantityByProduct) {
-          statements.push(
-            db
-              .update(products)
-              .set({ stockQuantity: sql`${products.stockQuantity} + ${qty}` })
-              .where(eq(products.id, productId))
-          );
-          statements.push(
-            db.insert(stockMovements).values({
-              id: crypto.randomUUID(),
-              productId,
-              delta: qty,
-              reason: `cancel:${order.orderNumber}`,
-              orderId,
-              userId: user.id,
-            })
-          );
+        // 2. Sell-from-stock only: return quantities to the shelf.
+        if (!settings.buildToOrder) {
+          const quantityByProduct = new Map<string, number>();
+          for (const item of activeItems) {
+            quantityByProduct.set(
+              item.productId,
+              (quantityByProduct.get(item.productId) ?? 0) + item.quantity
+            );
+          }
+          for (const [productId, qty] of quantityByProduct) {
+            statements.push(
+              db
+                .update(products)
+                .set({ stockQuantity: sql`${products.stockQuantity} + ${qty}` })
+                .where(eq(products.id, productId))
+            );
+            statements.push(
+              db.insert(stockMovements).values({
+                id: crypto.randomUUID(),
+                productId,
+                delta: qty,
+                reason: `cancel:${order.orderNumber}`,
+                orderId,
+                userId: user.id,
+              })
+            );
+          }
         }
 
         // 3. Cancelled orders carry no value in the totals column.

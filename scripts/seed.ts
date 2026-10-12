@@ -6,7 +6,7 @@ import { getPlatformProxy } from "wrangler";
 import { drizzle } from "drizzle-orm/d1";
 import bcrypt from "bcryptjs";
 import { sql } from "drizzle-orm";
-import { appSettings, categories, products, users } from "../src/db/schema";
+import { appSettings, categories, customers, products, users } from "../src/db/schema";
 
 // ============================================================
 // SECTION: Seed script
@@ -49,6 +49,37 @@ const seedUsers = [
 ];
 
 // ============================================================
+// SECTION: Seed data — customers (build-to-order demo)
+// ============================================================
+
+const seedCustomers = [
+  {
+    id: crypto.randomUUID(),
+    name: "Νίκος Παπαδόπουλος",
+    address: "Λεωφ. Ηρακλείου 124, Ηράκλειο",
+    phone: "6971234567",
+    email: "nikos.p@example.gr",
+    comments: "Παράδοση απόγευμα",
+  },
+  {
+    id: crypto.randomUUID(),
+    name: "Ελένη Κωνσταντίνου",
+    address: "Οδός Αθηνών 8, Χανιά",
+    phone: "6945556677",
+    email: null,
+    comments: null,
+  },
+  {
+    id: crypto.randomUUID(),
+    name: "Εργοστάσιο Αλουμινίων Κρήτης",
+    address: "Βιομηχανική Περιοχή, Ρέθυμνο",
+    phone: "2831099999",
+    email: "orders@alu-crete.example",
+    comments: "Χονδρική — πάντα σε κουτιά",
+  },
+];
+
+// ============================================================
 // SECTION: Seed data — categories
 // ------------------------------------------------------------
 // Linked to products by `key` (not id) — UUIDs are minted at
@@ -69,6 +100,15 @@ const seedCategories: SeedCategory[] = [
   { key: "packaging", name: "Packaging", nameEl: "Συσκευασίες" },
   { key: "pantry", name: "Café & Pantry", nameEl: "Καφές & Κουζίνα" },
 ];
+
+/**
+ * Box pricing helper: a box holds `perBox` pieces and costs the
+ * piece price × perBox with a small volume discount, so the demo
+ * shows both pricing paths working.
+ */
+function boxPrice(perPieceCents: number, perBox: number): number {
+  return Math.round(perPieceCents * perBox * 0.95); // ~5% box discount
+}
 
 // ============================================================
 // SECTION: Seed data — products
@@ -131,6 +171,17 @@ const seedProducts: SeedProduct[] = [
   { categoryKey: "pantry", partNumber: "PAN-MIL-1L", name: "UHT Milk 1L", description: "Full-fat UHT milk 1L, shelf-stable.", stockQuantity: 26, minStock: 10, priceCents: 145, unit: "pc", weightGrams: 1030 },
 ];
 
+/** Which demo products are sold in boxes (and how many pieces fit). */
+const BOX_CONFIG: Record<string, { perBox: number }> = {
+  "ALU-PRF-4040": { perBox: 6 },
+  "LOCK-MP-R70": { perBox: 10 },
+  "LOCK-CYL-3030": { perBox: 24 },
+  "HND-BAR-300": { perBox: 50 },
+  "HNG-3D-100": { perBox: 20 },
+  "PKG-TAPE-48": { perBox: 36 },
+  "CAF-COF-1K": { perBox: 6 },
+};
+
 // ============================================================
 // SECTION: Chunk helper (D1's 100-bound-variables per statement)
 // ============================================================
@@ -167,6 +218,10 @@ async function seed() {
   await db.insert(users).values(seedUsers);
   console.log(`  ✔ ${seedUsers.length} users (admin@ordix.local / staff@ordix.local)`);
 
+  // -- Customers (build-to-order demo) --
+  await db.insert(customers).values(seedCustomers);
+  console.log(`  ✔ ${seedCustomers.length} customers`);
+
   // -- Categories: UUID per key, sorted by definition order --
   const categoryIdByKey = new Map<string, string>();
   const categoryRows = seedCategories.map((category, index) => {
@@ -178,26 +233,34 @@ async function seed() {
   console.log(`  ✔ ${categoryRows.length} categories`);
 
   // -- Products: chunked for D1, snapshot = shelf reality --
-  // 17 bound columns per row (incl. timestamp defaults) × 5 rows
-  // = 85 params, safely under D1's 100-variable statement limit.
-  const productRows = seedProducts.map((product) => ({
-    id: crypto.randomUUID(),
-    categoryId: categoryIdByKey.get(product.categoryKey)!,
-    partNumber: product.partNumber,
-    name: product.name,
-    description: product.description,
-    imageUrl: null,
-    stockQuantity: product.stockQuantity,
-    minStock: product.minStock,
-    priceCents: product.priceCents,
-    isActive: true,
-    unit: product.unit,
-    weightGrams: product.weightGrams ?? null,
-    barcode: null,
-    supplier: product.supplier ?? null,
-    notes: null,
-  }));
-  for (const batch of chunk(productRows, 5)) {
+  // Boxed products get itemsPerBox + per-box/per-piece prices
+  // (per-box carries a small demo discount via boxPrice()).
+  // 20 bound columns per row × 4 rows = 80 params, safely under
+  // D1's 100-variable statement limit.
+  const productRows = seedProducts.map((product) => {
+    const box = BOX_CONFIG[product.partNumber];
+    return {
+      id: crypto.randomUUID(),
+      categoryId: categoryIdByKey.get(product.categoryKey)!,
+      partNumber: product.partNumber,
+      name: product.name,
+      description: product.description,
+      imageUrl: null,
+      stockQuantity: product.stockQuantity,
+      minStock: product.minStock,
+      priceCents: product.priceCents,
+      itemsPerBox: box?.perBox ?? null,
+      pricePerBoxCents: box ? boxPrice(product.priceCents, box.perBox) : null,
+      pricePerItemCents: box ? product.priceCents : null,
+      isActive: true,
+      unit: product.unit,
+      weightGrams: product.weightGrams ?? null,
+      barcode: null,
+      supplier: product.supplier ?? null,
+      notes: null,
+    };
+  });
+  for (const batch of chunk(productRows, 4)) {
     await db.insert(products).values(batch);
   }
   console.log(`  ✔ ${productRows.length} products`);

@@ -63,24 +63,25 @@ export function ProductGrid({
   // ============================================================
 
   const handleAdd = (product: ProductWithCategory) => {
-    const existingLine = items.find((line) => line.productId === product.id);
-    const nextQuantity = (existingLine?.quantity ?? 0) + 1;
+    const piecesPerBox = Math.max(1, product.itemsPerBox ?? 1);
+    const piecePrice = product.pricePerItemCents ?? product.priceCents;
+    const boxPrice = product.pricePerBoxCents ?? piecePrice * piecesPerBox;
 
-    if (nextQuantity > product.stockQuantity) {
+    const existingLine = items.find((line) => line.productId === product.id);
+    const nextPieces =
+      (existingLine?.quantityBoxes ?? 0) * piecesPerBox +
+      (existingLine?.quantityItems ?? 0) +
+      (piecesPerBox > 1 ? piecesPerBox : 1);
+
+    if (nextPieces > product.stockQuantity) {
+      const message = t("pos.oversellBlocked", {
+        count: product.stockQuantity,
+        name: product.name,
+      });
       if (allowOversell) {
-        toast.warning(
-          t("pos.oversellBlocked", {
-            count: product.stockQuantity,
-            name: product.name,
-          })
-        );
+        toast.warning(message);
       } else {
-        toast.error(
-          t("pos.oversellBlocked", {
-            count: product.stockQuantity,
-            name: product.name,
-          })
-        );
+        toast.error(message);
         return;
       }
     }
@@ -89,8 +90,10 @@ export function ProductGrid({
       productId: product.id,
       partNumber: product.partNumber,
       name: product.name,
-      unitPriceCents: product.priceCents,
-      unit: product.unit,
+      piecesPerBox,
+      hasBoxPrice: product.pricePerBoxCents !== null,
+      unitPriceBoxCents: boxPrice,
+      unitPriceItemCents: piecePrice,
       imageUrl: product.imageUrl,
       availableStock: product.stockQuantity,
     });
@@ -205,10 +208,26 @@ export function ProductGrid({
                       {product.partNumber}
                     </span>
 
-                    {/* Price + stock row */}
+                    {/* Price + stock row: box price leads when the
+                        product is boxed; piece price shown as hint */}
                     <div className="mt-auto flex items-center justify-between gap-2 pt-3">
-                      <span className="text-lg font-bold text-primary">
-                        {formatMoney(product.priceCents, locale)}
+                      <span className="text-base font-bold leading-tight text-primary">
+                        {product.pricePerBoxCents !== null
+                          ? formatMoney(product.pricePerBoxCents, locale)
+                          : formatMoney(
+                              product.pricePerItemCents ?? product.priceCents,
+                              locale
+                            )}
+                        {product.pricePerBoxCents !== null && (
+                          <span className="block text-[11px] font-medium text-on-surface-muted">
+                            {t("pos.perItem", {
+                              price: formatMoney(
+                                product.pricePerItemCents ?? product.priceCents,
+                                locale
+                              ),
+                            })}
+                          </span>
+                        )}
                       </span>
                       {product.stockQuantity === 0 ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-high px-2.5 py-1 text-xs font-semibold text-on-surface-muted">

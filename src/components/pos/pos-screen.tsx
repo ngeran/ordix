@@ -6,33 +6,29 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ReceiptText, X } from "lucide-react";
+import { ReceiptText, UserRound, X } from "lucide-react";
 import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
-import { useT } from "@/lib/i18n";
+import { useLocale, useT } from "@/lib/i18n";
 import { useCartStore } from "@/stores/cart-store";
 import { toast } from "@/stores/toast-store";
 import type { Category } from "@/db/schema";
-import type { OrdixSettingsDTO, OrderDetail, ProductWithCategory } from "@/types";
+import type { OrderDetail, ProductWithCategory } from "@/types";
+import type { OrdixSettingsDTO } from "@/types";
 import { cn, formatMoney } from "@/lib/utils";
-import { useLocale } from "@/lib/i18n";
 import { ProductGrid } from "@/components/pos/product-grid";
 import { CartPanel } from "@/components/pos/cart-panel";
+import { CustomerPicker } from "@/components/pos/customer-picker";
 import { Button } from "@/components/ui/button";
 import { LoadingArea } from "@/components/ui/spinner";
 
 // ============================================================
-// SECTION: POS screen — product grid + draft ticket
+// SECTION: POS screen — customer (step 1) + products + ticket
 // ------------------------------------------------------------
-// Orchestration only; rendering lives in ProductGrid/CartPanel.
-//
-// Data flow:
-//   - catalog + categories poll (15 s / 60 s) so stock badges
-//     stay honest without manual refresh
-//   - the ticket itself lives in Zustand and survives reloads
-//   - placing = POST /api/orders (stock deducted server-side);
-//     appending = POST /api/orders/[id]/items when the ticket is
-//     in "append round" mode (entered from an order's detail page)
+// Order flow per the business:
+//   1. select (or create) the CUSTOMER — banner at the top
+//   2. tap products; enter κουτιά/τεμάχια in the ticket
+//   3. big confirm → the order goes straight to production
 // ============================================================
 
 export function PosScreen() {
@@ -60,18 +56,24 @@ export function PosScreen() {
   });
 
   // -- Ticket state --
+  const customer = useCartStore((state) => state.customer);
   const items = useCartStore((state) => state.items);
   const appendOrderId = useCartStore((state) => state.appendOrderId);
   const appendOrderLabel = useCartStore((state) => state.appendOrderLabel);
   const stopAppend = useCartStore((state) => state.stopAppend);
   const clearCart = useCartStore((state) => state.clearCart);
-  const lineCount = useCartStore((state) => state.items.length);
-  const totalCents = useCartStore((state) =>
-    state.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0)
+  const lineCount = items.length;
+  const totalCents = items.reduce(
+    (sum, item) =>
+      sum +
+      item.quantityBoxes * item.unitPriceBoxCents +
+      item.quantityItems * item.unitPriceItemCents,
+    0
   );
 
   // -- UI state --
-  const [cartOpen, setCartOpen] = useState(false); // mobile ticket drawer
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
   const [placing, setPlacing] = useState(false);
 
   const allowOversell = settings?.allowOversell ?? false;
@@ -82,20 +84,27 @@ export function PosScreen() {
 
   const submitTicket = async () => {
     if (items.length === 0 || placing) return;
+
+    // Step 1 of the flow is mandatory: no customer, no order.
+    if (!appendOrderId && !customer) {
+      toast.warning(t("customer.required"));
+      setCustomerPickerOpen(true);
+      return;
+    }
+
     setPlacing(true);
     try {
       const payload = {
-        customerName: useCartStore.getState().customerName ?? undefined,
         notes: useCartStore.getState().notes ?? undefined,
         items: items.map((item) => ({
           productId: item.productId,
-          quantity: item.quantity,
+          quantityBoxes: item.quantityBoxes,
+          quantityItems: item.quantityItems,
           note: item.note ?? undefined,
         })),
       };
 
       if (appendOrderId) {
-        // Append mode: new round on a live order.
         const updated = await api.post<OrderDetail>(
           `/api/orders/${appendOrderId}/items`,
           { items: payload.items }
@@ -104,8 +113,10 @@ export function PosScreen() {
         clearCart();
         router.push(`/orders/${appendOrderId}`);
       } else {
-        // Fresh order: stock is deducted atomically server-side.
-        const created = await api.post<OrderDetail>("/api/orders", payload);
+        const created = await api.post<OrderDetail>("/api/orders", {
+          ...payload,
+          customerId: customer!.id,
+        });
         toast.success(t("pos.orderPlaced", { number: created.orderNumber }));
         clearCart();
         router.push(`/orders/${created.id}`);
@@ -122,7 +133,40 @@ export function PosScreen() {
   // ============================================================
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col lg:h-[calc(100dvh-3.5rem)]">
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
+      {/* ============================================================
+          SECTION: Customer banner — step 1 of the flow
+          ============================================================ */}
+      <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2">
+        <span
+          aria-hidden
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary"
+        >
+          <UserRound className="h-5 w-5" />
+        </span>
+        {customer ? (
+          <>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{customer.name}</p>
+              <p className="-mt-0.5 text-xs text-on-surface-muted">{t("customer.select")}</p>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => setCustomerPickerOpen(true)}>
+              {t("customer.change")}
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="flex-1 font-medium text-on-surface-muted">
+              {t("customer.noneSelected")}
+            </p>
+            <Button onClick={() => setCustomerPickerOpen(true)}>
+              <UserRound className="h-5 w-5" />
+              {t("customer.select")}
+            </Button>
+          </>
+        )}
+      </div>
+
       {/* -- Append-round banner -- */}
       {appendOrderId && (
         <div className="flex items-center justify-between gap-3 border-b border-border bg-primary-soft px-4 py-2 text-sm">
@@ -190,6 +234,12 @@ export function PosScreen() {
           </div>
         </div>
       )}
+
+      {/* Customer picker (step 1) */}
+      <CustomerPicker
+        open={customerPickerOpen}
+        onClose={() => setCustomerPickerOpen(false)}
+      />
 
       {/* First-load spinner (catalog) */}
       {!products && (

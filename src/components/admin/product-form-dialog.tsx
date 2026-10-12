@@ -47,6 +47,9 @@ export function ProductFormDialog({
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [priceEuros, setPriceEuros] = useState("");
+  const [itemsPerBox, setItemsPerBox] = useState("");
+  const [pricePerBoxEuros, setPricePerBoxEuros] = useState("");
+  const [pricePerItemEuros, setPricePerItemEuros] = useState("");
   const [stockQuantity, setStockQuantity] = useState("0");
   const [minStock, setMinStock] = useState("0");
   const [unit, setUnit] = useState("pcs");
@@ -66,6 +69,13 @@ export function ProductFormDialog({
       setDescription(product.description ?? "");
       setCategoryId(product.categoryId);
       setPriceEuros((product.priceCents / 100).toFixed(2));
+      setItemsPerBox(product.itemsPerBox ? String(product.itemsPerBox) : "");
+      setPricePerBoxEuros(
+        product.pricePerBoxCents ? (product.pricePerBoxCents / 100).toFixed(2) : ""
+      );
+      setPricePerItemEuros(
+        product.pricePerItemCents ? (product.pricePerItemCents / 100).toFixed(2) : ""
+      );
       setStockQuantity(String(product.stockQuantity));
       setMinStock(String(product.minStock));
       setUnit(product.unit);
@@ -81,6 +91,9 @@ export function ProductFormDialog({
       setDescription("");
       setCategoryId(categories[0]?.id ?? "");
       setPriceEuros("");
+      setItemsPerBox("");
+      setPricePerBoxEuros("");
+      setPricePerItemEuros("");
       setStockQuantity("0");
       setMinStock("0");
       setUnit("pcs");
@@ -93,20 +106,20 @@ export function ProductFormDialog({
   }, [product, categories]);
 
   /** "12.50" → 1250 cents; invalid input → undefined. */
-  const parsePriceCents = (): number | undefined => {
-    const value = Number(priceEuros.replace(",", "."));
-    if (!Number.isFinite(value) || value < 0) return undefined;
-    return Math.round(value * 100);
+  const parsePriceCents = (value: string): number | undefined => {
+    const parsed = Number(value.replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+    return Math.round(parsed * 100);
   };
 
   const canSubmit =
     partNumber.trim().length > 0 &&
     name.trim().length > 0 &&
     categoryId !== "" &&
-    parsePriceCents() !== undefined;
+    parsePriceCents(priceEuros) !== undefined;
 
   const submit = async () => {
-    const priceCents = parsePriceCents();
+    const priceCents = parsePriceCents(priceEuros);
     if (!canSubmit || priceCents === undefined) return;
     setBusy(true);
     try {
@@ -116,6 +129,13 @@ export function ProductFormDialog({
         description: description.trim() || undefined,
         categoryId,
         priceCents,
+        itemsPerBox: itemsPerBox ? Number(itemsPerBox) : null,
+        pricePerBoxCents: pricePerBoxEuros
+          ? parsePriceCents(pricePerBoxEuros)
+          : null,
+        pricePerItemCents: pricePerItemEuros
+          ? parsePriceCents(pricePerItemEuros)
+          : null,
         stockQuantity: Number(stockQuantity) || 0,
         minStock: Number(minStock) || 0,
         unit: unit.trim() || "pcs",
@@ -192,6 +212,40 @@ export function ProductFormDialog({
             value={priceEuros}
             onChange={(event) => setPriceEuros(event.target.value)}
             required
+          />
+        </Field>
+
+        <Field label={t("products.itemsPerBox")} htmlFor="p-ipb">
+          <Input
+            id="p-ipb"
+            type="number"
+            min="0"
+            inputMode="numeric"
+            value={itemsPerBox}
+            onChange={(event) => setItemsPerBox(event.target.value)}
+            placeholder="e.g. 6"
+          />
+        </Field>
+        <Field label={t("products.pricePerBox")} htmlFor="p-ppb">
+          <Input
+            id="p-ppb"
+            type="number"
+            step="0.01"
+            min="0"
+            inputMode="decimal"
+            value={pricePerBoxEuros}
+            onChange={(event) => setPricePerBoxEuros(event.target.value)}
+          />
+        </Field>
+        <Field label={t("products.pricePerItem")} htmlFor="p-ppi">
+          <Input
+            id="p-ppi"
+            type="number"
+            step="0.01"
+            min="0"
+            inputMode="decimal"
+            value={pricePerItemEuros}
+            onChange={(event) => setPricePerItemEuros(event.target.value)}
           />
         </Field>
 

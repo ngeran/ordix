@@ -8,10 +8,11 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Banknote,
   Boxes,
-  ChefHat,
   ClipboardList,
   FolderTree,
+  Factory,
   Home,
   Package,
   ShoppingCart,
@@ -42,7 +43,8 @@ interface NavItem {
     | "nav.home"
     | "nav.order"
     | "nav.orders"
-    | "nav.prep"
+    | "nav.production"
+    | "nav.cashier"
     | "nav.products"
     | "nav.categories"
     | "nav.stock";
@@ -54,7 +56,8 @@ const NAV_MAIN: NavItem[] = [
   { href: "/home", labelKey: "nav.home", icon: Home },
   { href: "/order", labelKey: "nav.order", icon: ShoppingCart },
   { href: "/orders", labelKey: "nav.orders", icon: ClipboardList },
-  { href: "/prep", labelKey: "nav.prep", icon: ChefHat },
+  { href: "/production", labelKey: "nav.production", icon: Factory },
+  { href: "/cashier", labelKey: "nav.cashier", icon: Banknote },
 ];
 
 const NAV_ADMIN: NavItem[] = [
@@ -217,7 +220,7 @@ export function AppShell({
         className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
         aria-label="Main navigation"
       >
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {mainNav.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;

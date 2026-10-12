@@ -31,11 +31,23 @@ export type OrderSummary = Order & {
   createdByName: string | null;
 };
 
+/** Customer contact block shown on the order detail page. */
+export interface OrderCustomerInfo {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  comments: string | null;
+}
+
 /** Full order detail: items + status timeline with actor names. */
 export type OrderDetail = Order & {
   items: OrderItem[];
   events: (Omit<OrderEvent, "userId"> & { userName: string | null })[];
   createdByName: string | null;
+  /** Phase 2: the linked customer record, when the order has one. */
+  customer: OrderCustomerInfo | null;
 };
 
 /** Client-side mirror of the server settings snapshot. */

@@ -47,6 +47,24 @@ export const categoryReorderSchema = z.object({
 });
 
 // ============================================================
+// SECTION: Customers (Phase 2)
+// ============================================================
+
+export const customerCreateSchema = z.object({
+  name: shortText,
+  address: optionalText,
+  phone: optionalText,
+  email: z
+    .union([z.email(), z.literal("")])
+    .optional()
+    .transform((value) => (value === "" ? undefined : value)),
+  comments: optionalText,
+  isActive: z.boolean().default(true),
+});
+
+export const customerUpdateSchema = customerCreateSchema.partial();
+
+// ============================================================
 // SECTION: Catalog — products
 // ============================================================
 
@@ -59,6 +77,10 @@ export const productCreateSchema = z.object({
   minStock: z.coerce.number().int().min(0).max(1_000_000).default(0),
   /** Integer cents — Zod rejects anything non-integer here. */
   priceCents: z.coerce.number().int().min(0).max(100_000_000),
+  /** Pieces per box + per-box/per-piece prices (build-to-order). */
+  itemsPerBox: z.coerce.number().int().min(0).max(100_000).optional().nullable(),
+  pricePerBoxCents: z.coerce.number().int().min(0).max(100_000_000).optional().nullable(),
+  pricePerItemCents: z.coerce.number().int().min(0).max(100_000_000).optional().nullable(),
   categoryId: uuid,
   isActive: z.boolean().default(true),
   unit: z.string().trim().min(1).max(20).default("pcs"),
@@ -71,19 +93,29 @@ export const productCreateSchema = z.object({
 export const productUpdateSchema = productCreateSchema.partial();
 
 // ============================================================
-// SECTION: Orders
+// SECTION: Orders (build-to-order v2)
 // ============================================================
 
-/** One cart line sent to the server. Quantity is positive int. */
-export const orderItemInputSchema = z.object({
-  productId: uuid,
-  quantity: z.coerce.number().int().min(1).max(10_000),
-  note: optionalText,
-});
+/**
+ * One cart line: boxes (κουτιά), loose items (τεμάχια) or both —
+ * at least one must be greater than zero.
+ */
+export const orderItemInputSchema = z
+  .object({
+    productId: uuid,
+    quantityBoxes: z.coerce.number().int().min(0).max(10_000).default(0),
+    quantityItems: z.coerce.number().int().min(0).max(100_000).default(0),
+    note: optionalText,
+  })
+  .refine(
+    (line) => line.quantityBoxes > 0 || line.quantityItems > 0,
+    "Each line needs boxes or items"
+  );
 
 /** Body of POST /api/orders — placing a new order from the cart. */
 export const placeOrderSchema = z.object({
-  customerName: optionalText,
+  /** Build-to-order: every order belongs to a customer. */
+  customerId: uuid,
   notes: optionalText,
   items: z.array(orderItemInputSchema).min(1, "Order needs at least one item"),
 });
@@ -93,7 +125,7 @@ export const appendItemsSchema = z.object({
   items: z.array(orderItemInputSchema).min(1, "Round needs at least one item"),
 });
 
-/** Body of POST /api/orders/[id]/items/[itemId] — void or toggle check. */
+/** Body of POST /api/orders/[id]/items/[itemId] — production & edits. */
 export const itemActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("void"),
@@ -104,7 +136,23 @@ export const itemActionSchema = z.discriminatedUnion("action", [
     action: z.literal("check"),
     isChecked: z.boolean(),
   }),
+  /** Production manager: pending → in_production. */
+  z.object({ action: z.literal("send_to_production") }),
+  /** Production manager: in_production → completed. */
+  z.object({ action: z.literal("complete_production") }),
 ]);
+
+/**
+ * Body of POST /api/orders/[id]/close — the cashier's action.
+ * Allowed only when the order is production_complete and every
+ * active line is produced (admin may force in exceptional cases).
+ */
+export const closeOrderSchema = z.object({
+  paymentMethod: z.enum(["cash", "card", "transfer"]).optional(),
+  paymentNote: optionalText,
+  /** Admin-only bypass for the all-items-completed rule. */
+  force: z.boolean().default(false),
+});
 
 /** Body of POST /api/orders/[id]/status. */
 export const statusUpdateSchema = z.object({
@@ -153,9 +201,13 @@ export const settingsUpdateSchema = z
   .object({
     allowOversell: z.boolean().optional(),
     restockOnVoid: z.boolean().optional(),
+    buildToOrder: z.boolean().optional(),
   })
   .refine(
-    (data) => data.allowOversell !== undefined || data.restockOnVoid !== undefined,
+    (data) =>
+      data.allowOversell !== undefined ||
+      data.restockOnVoid !== undefined ||
+      data.buildToOrder !== undefined,
     "At least one setting is required"
   );
 

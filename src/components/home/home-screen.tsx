@@ -6,11 +6,15 @@
 
 import Link from "next/link";
 import {
-  ChefHat,
+  Banknote,
   ClipboardList,
+  Factory,
+  FileUp,
+  FolderTree,
   Monitor,
   Package,
   ShoppingCart,
+  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
@@ -28,8 +32,13 @@ import { useT } from "@/lib/i18n";
 
 interface HomeTile {
   href: string;
-  labelKey: "home.newOrder" | "home.orders" | "home.prep" | "home.display";
-  hintKey: "home.newOrderHint" | "home.ordersHint" | "home.prepHint" | "home.displayHint";
+  labelKey: "home.newOrder" | "home.orders" | "home.production" | "home.cashier" | "home.display";
+  hintKey:
+    | "home.newOrderHint"
+    | "home.ordersHint"
+    | "home.productionHint"
+    | "home.cashierHint"
+    | "home.displayHint";
   icon: LucideIcon;
   /** Tailwind classes coloring the icon bubble per action. */
   bubbleClass: string;
@@ -44,18 +53,25 @@ const MAIN_TILES: HomeTile[] = [
     bubbleClass: "bg-primary text-on-primary",
   },
   {
+    href: "/production",
+    labelKey: "home.production",
+    hintKey: "home.productionHint",
+    icon: Factory,
+    bubbleClass: "bg-amber-500 text-white",
+  },
+  {
+    href: "/cashier",
+    labelKey: "home.cashier",
+    hintKey: "home.cashierHint",
+    icon: Banknote,
+    bubbleClass: "bg-emerald-500 text-white",
+  },
+  {
     href: "/orders",
     labelKey: "home.orders",
     hintKey: "home.ordersHint",
     icon: ClipboardList,
     bubbleClass: "bg-sky-500 text-white",
-  },
-  {
-    href: "/prep",
-    labelKey: "home.prep",
-    hintKey: "home.prepHint",
-    icon: ChefHat,
-    bubbleClass: "bg-amber-500 text-white",
   },
   {
     href: "/display",
@@ -108,8 +124,9 @@ export function HomeScreen({ isAdmin }: { isAdmin: boolean }) {
           </h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <AdminTile href="/admin/products" icon={Package} label={t("nav.products")} />
-            <AdminTile href="/admin/categories" icon={ClipboardList} label={t("nav.categories")} />
-            <AdminTile href="/admin/stock" icon={ChefHat} label={t("nav.stock")} />
+            <AdminTile href="/admin/categories" icon={FolderTree} label={t("nav.categories")} />
+            <AdminTile href="/admin/stock" icon={Warehouse} label={t("nav.stock")} />
+            <AdminTile href="/admin/import" icon={FileUp} label={t("import.title")} />
           </div>
         </>
       )}
