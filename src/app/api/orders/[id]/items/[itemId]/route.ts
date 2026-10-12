@@ -3,31 +3,23 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { asBatch, getDb } from "@/db";
-import {
-  orderEvents,
-  orderItems,
-  orders,
-  products,
-  stockMovements,
-} from "@/db/schema";
+import { orderEvents, orderItems, orders } from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
 import { itemActionSchema, parseJsonBody } from "@/lib/validation";
 import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-service";
-import { getSettings } from "@/lib/settings";
 
 // ============================================================
 // SECTION: Item actions — production clicks + edits
 // ------------------------------------------------------------
 //   send_to_production : pending   → in_production  (manager click 1)
 //   complete_production: in_production → completed   (manager click 2)
-//   void               : only while still pending (audit + optional
-//                        restock in sell-from-stock mode)
-//   check              : legacy packing tick (harmless if unused)
+//   void               : only while still pending (audit trail)
 // Sending the first item auto-advances a "placed" order to
 // in_production so the boards stay truthful without a second tap.
+// Build-to-order: voids never touch stock — nothing was deducted.
 // ============================================================
 
 const VOIDABLE_STATUSES = ["placed", "in_production", "on_hold"];
@@ -153,7 +145,7 @@ export async function POST(
     }
 
     // ============================================================
-    // SECTION: Void a single item (with reason → audit + restock)
+    // SECTION: Void a single item (with reason → audit)
     // ============================================================
     if (input.action === "void") {
       if (item.status !== "active") {
@@ -177,73 +169,29 @@ export async function POST(
         );
       }
 
-      const settings = await getSettings(db);
-      const statements: BatchItem<"sqlite">[] = [
-        db
-          .update(orderItems)
-          .set({
-            status: "voided",
-            voidReason: input.reason,
-            voidNote: input.note ?? null,
-            voidedById: user.id,
-            voidedAt: new Date(),
-          })
-          .where(eq(orderItems.id, itemId)),
-        db.insert(orderEvents).values({
-          id: crypto.randomUUID(),
-          orderId,
-          fromStatus: order.status,
-          toStatus: order.status,
-          userId: user.id,
-          note: `Voided: ${item.name} ×${item.quantity} — ${input.reason}`,
-        }),
-      ];
-
-      // Restock only matters in sell-from-stock mode.
-      if (!settings.buildToOrder && settings.restockOnVoid) {
-        statements.push(
+      await db.batch(
+        asBatch([
           db
-            .update(products)
-            .set({ stockQuantity: sql`${products.stockQuantity} + ${item.quantity}` })
-            .where(eq(products.id, item.productId))
-        );
-        statements.push(
-          db.insert(stockMovements).values({
+            .update(orderItems)
+            .set({
+              status: "voided",
+              voidReason: input.reason,
+              voidNote: input.note ?? null,
+              voidedById: user.id,
+              voidedAt: new Date(),
+            })
+            .where(eq(orderItems.id, itemId)),
+          db.insert(orderEvents).values({
             id: crypto.randomUUID(),
-            productId: item.productId,
-            delta: item.quantity,
-            reason: `void:${order.orderNumber}`,
             orderId,
+            fromStatus: order.status,
+            toStatus: order.status,
             userId: user.id,
-          })
-        );
-      }
-
-      await db.batch(asBatch(statements));
+            note: `Voided: ${item.name} — ${input.reason}`,
+          }),
+        ])
+      );
       await recalculateOrderTotal(db, orderId);
-
-      const detail = await getOrderDetail(db, orderId);
-      return NextResponse.json(detail);
-    }
-
-    // ============================================================
-    // SECTION: Toggle the (legacy) packing checklist tick
-    // ============================================================
-    if (input.action === "check") {
-      if (item.status !== "active") {
-        return NextResponse.json(
-          { error: "Voided items cannot be checked" },
-          { status: 409 }
-        );
-      }
-      await db
-        .update(orderItems)
-        .set({
-          isChecked: input.isChecked,
-          checkedAt: input.isChecked ? new Date() : null,
-          checkedById: input.isChecked ? user.id : null,
-        })
-        .where(eq(orderItems.id, itemId));
 
       const detail = await getOrderDetail(db, orderId);
       return NextResponse.json(detail);

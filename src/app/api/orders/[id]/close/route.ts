@@ -39,7 +39,13 @@ export async function POST(
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
-    if (order.status !== "production_complete") {
+    // Acceptable starting points: production_complete (normal) or
+    // in_production (the manager skipped the explicit hand-off —
+    // closing implies production is done).
+    if (
+      order.status !== "production_complete" &&
+      order.status !== "in_production"
+    ) {
       return NextResponse.json(
         { error: "Only orders with completed production can be closed" },
         { status: 409 }
@@ -79,12 +85,12 @@ export async function POST(
       db.insert(orderEvents).values({
         id: crypto.randomUUID(),
         orderId,
-        fromStatus: "production_complete",
+        fromStatus: order.status,
         toStatus: "completed",
         userId: user.id,
         note: `Payment collected${input.paymentMethod ? ` (${input.paymentMethod})` : ""}${
-          input.force ? " — FORCED close" : ""
-        }`,
+          order.status === "in_production" ? " — production auto-completed at close" : ""
+        }${input.force ? " — FORCED close" : ""}`,
       }),
     ]);
 

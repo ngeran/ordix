@@ -14,7 +14,6 @@ import {
   type Order,
   type OrderItem,
   type OrderStatus,
-  type Product,
 } from "@/db/schema";
 import { ACTIVE_ORDER_STATUSES, formatOrderNumber } from "@/lib/order-status";
 import { getBusinessDate } from "@/lib/utils";
@@ -25,49 +24,12 @@ import type { OrderDetail, OrderSummary } from "@/types";
 // ------------------------------------------------------------
 // Shared query/mutation building blocks used by the order API
 // routes, kept here so route files stay thin and the rules
-// (number allocation, pricing, total recomputation) live in
-// one place.
+// (number allocation, total recomputation) live in one place.
+// Build-to-order: products are unpriced identifiers — the PRICE
+// of each line is quoted manually and stored as lineTotalCents.
 // ============================================================
 
 type Database = ReturnType<typeof drizzle>;
-
-// ============================================================
-// SECTION: Build-to-order line pricing (κουτιά / τεμάχια)
-// ------------------------------------------------------------
-// Every line carries boxes, loose items, or both. Pricing rules:
-//   piece price = pricePerItemCents  ?? priceCents (legacy base)
-//   box price   = pricePerBoxCents   ?? piecePrice × itemsPerBox
-//   line total  = boxes × boxPrice + items × piecePrice
-// Snapshots of BOTH unit prices go on the line so catalog edits
-// never change what an order cost.
-// ============================================================
-
-export interface LinePricing {
-  piecePriceCents: number;
-  boxPriceCents: number;
-  lineTotalCents: number;
-  /** Piece-equivalent volume (boxes expand via itemsPerBox). */
-  totalUnits: number;
-}
-
-export function computeLinePricing(
-  product: Product,
-  quantityBoxes: number,
-  quantityItems: number
-): LinePricing {
-  const piecePriceCents = product.pricePerItemCents ?? product.priceCents;
-  const boxPriceCents =
-    product.pricePerBoxCents ??
-    piecePriceCents * Math.max(1, product.itemsPerBox ?? 1);
-  return {
-    piecePriceCents,
-    boxPriceCents,
-    lineTotalCents:
-      quantityBoxes * boxPriceCents + quantityItems * piecePriceCents,
-    totalUnits:
-      quantityBoxes * Math.max(1, product.itemsPerBox ?? 1) + quantityItems,
-  };
-}
 
 // ============================================================
 // SECTION: Daily order-number allocation

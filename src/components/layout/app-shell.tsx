@@ -23,7 +23,6 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import { flushOutbox, refreshPendingCount } from "@/lib/offline-outbox";
 import { useSyncStore } from "@/stores/sync-store";
-import { LowStockBell } from "@/components/layout/low-stock-bell";
 import { SyncIndicator } from "@/components/layout/sync-indicator";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { LocaleToggle } from "@/components/locale-toggle";
@@ -197,7 +196,6 @@ export function AppShell({
 
           <div className="flex items-center gap-1">
             <SyncIndicator />
-            {isAdmin && <LowStockBell />}
             <InstallAppButton className="hidden sm:inline-flex" variant="compact" />
             <LocaleToggle />
             <ThemeToggle />

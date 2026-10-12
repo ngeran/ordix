@@ -5,37 +5,33 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Package, Pencil, Plus, Search, Trash2, Warehouse } from "lucide-react";
+import { Package, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import type { Category, Product } from "@/db/schema";
 import type { ProductWithCategory } from "@/types";
 import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
-import { useLocale, useT } from "@/lib/i18n";
-import { cn, formatMoney } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { LoadingArea } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ProductFormDialog } from "@/components/admin/product-form-dialog";
-import { AdjustStockDialog } from "@/components/admin/adjust-stock-dialog";
 
 // ============================================================
 // SECTION: Admin products screen
 // ------------------------------------------------------------
-// Catalog CRUD for admins: search, category filter, create/
-// edit dialog, deactivate toggle, delete (soft when the product
-// has history), quick stock adjust.
+// The catalog is pure identifiers (build-to-order): six fields,
+// no stock, no prices — money is quoted on each order line.
 // ============================================================
 
 export function ProductsScreen() {
   const t = useT();
-  const locale = useLocale();
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -48,27 +44,31 @@ export function ProductsScreen() {
     return `/api/products?${params.toString()}`;
   }, [search, categoryFilter]);
 
-  const { data: products, refresh: refreshProducts } = usePolling<ProductWithCategory[]>(
-    productsUrl,
-    { intervalMs: 20_000 }
-  );
-  const { data: categories, refresh: refreshCategories } = usePolling<Category[]>(
-    "/api/categories",
-    { intervalMs: 60_000 }
-  );
+  const { data: products, refresh: refreshProducts } = usePolling<
+    ProductWithCategory[]
+  >(productsUrl, { intervalMs: 20_000 });
+  const { data: categories, refresh: refreshCategories } = usePolling<
+    Category[]
+  >("/api/categories", { intervalMs: 60_000 });
 
   // -- Dialog state --
-  const [editing, setEditing] = useState<ProductWithCategory | null | undefined>(undefined);
-  const [adjusting, setAdjusting] = useState<ProductWithCategory | null>(null);
+  const [editing, setEditing] = useState<
+    ProductWithCategory | null | undefined
+  >(undefined);
   const [deleting, setDeleting] = useState<ProductWithCategory | null>(null);
 
   // ============================================================
   // SECTION: Mutations
   // ============================================================
 
-  const toggleActive = async (product: ProductWithCategory, next: boolean) => {
+  const toggleActive = async (
+    product: ProductWithCategory,
+    next: boolean
+  ) => {
     try {
-      await api.patch<Product>(`/api/products/${product.id}`, { isActive: next });
+      await api.patch<Product>(`/api/products/${product.id}`, {
+        isActive: next,
+      });
       refreshProducts();
     } catch (error) {
       showErrorToast(error, t("error.generic"));
@@ -78,11 +78,12 @@ export function ProductsScreen() {
   const confirmDelete = async () => {
     if (!deleting) return;
     try {
-      const result = await api.delete<{ deleted: boolean; deactivated: boolean }>(
-        `/api/products/${deleting.id}`
-      );
+      const result = await api.delete<{
+        deleted: boolean;
+        deactivated: boolean;
+      }>(`/api/products/${deleting.id}`);
       if (result.deactivated) {
-        toast.info(t("products.deleteConfirm", { name: deleting.name })); // explain soft-delete
+        toast.info(t("products.deleteConfirm", { name: deleting.name }));
       } else {
         toast.success(t("products.deleted"));
       }
@@ -93,8 +94,6 @@ export function ProductsScreen() {
       setDeleting(null);
     }
   };
-
-  const lowStockCount = (products ?? []).filter((product) => product.isLowStock).length;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-4">
@@ -110,7 +109,10 @@ export function ProductsScreen() {
       {/* -- Filters -- */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative min-w-56 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-on-surface-muted" aria-hidden />
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-on-surface-muted"
+            aria-hidden
+          />
           <Input
             type="search"
             value={search}
@@ -133,11 +135,6 @@ export function ProductsScreen() {
             </option>
           ))}
         </Select>
-        {lowStockCount > 0 && (
-          <Badge className="bg-warning-soft text-warning" dot="bg-warning">
-            {t("stock.lowStockAlert", { count: lowStockCount })}
-          </Badge>
-        )}
       </div>
 
       {/* -- Product cards -- */}
@@ -149,18 +146,28 @@ export function ProductsScreen() {
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {products.map((product) => (
             <li key={product.id}>
-              <Card className={cn("flex h-full flex-col gap-3 p-4", !product.isActive && "opacity-60")}>
+              <Card
+                className={cn(
+                  "flex h-full flex-col gap-3 p-4",
+                  !product.isActive && "opacity-60"
+                )}
+              >
                 {/* Title + active toggle */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold leading-snug">{product.name}</p>
+                    <p className="truncate font-semibold leading-snug">
+                      {product.name}
+                    </p>
                     <p className="mt-0.5 truncate font-mono text-xs text-on-surface-muted">
                       {product.partNumber} · {product.categoryName ?? "—"}
+                      {product.barcode ? ` · ${product.barcode}` : ""}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
                     <span className="text-[11px] text-on-surface-muted">
-                      {product.isActive ? t("common.active") : t("common.inactive")}
+                      {product.isActive
+                        ? t("common.active")
+                        : t("common.inactive")}
                     </span>
                     <Switch
                       checked={product.isActive}
@@ -170,35 +177,30 @@ export function ProductsScreen() {
                   </div>
                 </div>
 
-                {/* Price + stock pill */}
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-lg font-bold text-primary">
-                    {formatMoney(product.priceCents, locale)}
+                {/* Description (when present) */}
+                {product.description && (
+                  <p className="line-clamp-2 text-sm text-on-surface-muted">
+                    {product.description}
                   </p>
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
-                      product.isLowStock
-                        ? "bg-warning-soft text-warning"
-                        : "bg-surface-container text-on-surface-muted"
-                    )}
-                  >
-                    {product.isLowStock && <AlertTriangle className="h-3.5 w-3.5" aria-hidden />}
-                    {t("stock.current")}: {product.stockQuantity} {product.unit} · {t("stock.min")} {product.minStock}
-                  </span>
-                </div>
+                )}
 
                 {/* Actions pinned to the card bottom */}
                 <div className="mt-auto flex gap-2 border-t border-border pt-3">
-                  <Button variant="secondary" size="sm" className="flex-1" onClick={() => setEditing(product)}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setEditing(product)}
+                  >
                     <Pencil className="h-4 w-4" />
                     {t("common.edit")}
                   </Button>
-                  <Button variant="secondary" size="sm" className="flex-1" onClick={() => setAdjusting(product)}>
-                    <Warehouse className="h-4 w-4" />
-                    {t("stock.adjust")}
-                  </Button>
-                  <Button variant="ghost" size="iconSm" onClick={() => setDeleting(product)} aria-label={t("common.delete")}>
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
+                    onClick={() => setDeleting(product)}
+                    aria-label={t("common.delete")}
+                  >
                     <Trash2 className="h-4 w-4 text-error" />
                   </Button>
                 </div>
@@ -221,12 +223,6 @@ export function ProductsScreen() {
           }}
         />
       )}
-
-      <AdjustStockDialog
-        product={adjusting}
-        onClose={() => setAdjusting(null)}
-        onAdjusted={() => refreshProducts()}
-      />
 
       <Dialog
         open={deleting !== null}

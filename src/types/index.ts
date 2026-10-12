@@ -17,10 +17,9 @@ import type {
 // components consume them.
 // ============================================================
 
-/** Product joined with its category name + computed low-stock flag. */
+/** Product joined with its category name. */
 export type ProductWithCategory = Product & {
   categoryName: string | null;
-  isLowStock: boolean;
 };
 
 /** Order list row: order plus aggregates shown on the board. */
@@ -51,12 +50,6 @@ export type OrderDetail = Order & {
 };
 
 /** Client-side mirror of the server settings snapshot. */
-export interface OrdixSettingsDTO {
-  allowOversell: boolean;
-  restockOnVoid: boolean;
-}
-
-/** Shape of the NextAuth session user used across the app. */
 export interface OrdixSessionUser {
   id: string;
   name?: string | null;

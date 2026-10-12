@@ -2,7 +2,7 @@
 
 **Ordix** is a modern, multi-purpose **order management + inventory** system — built to run equally well for everyday/food-style ordering and for **industrial products** (aluminum components, door & window locking mechanisms).
 
-It covers the full product lifecycle: **order placement → stock deduction → preparation → packing checklist → courier hand-off with tracking number**, with an audit trail for every stock change and void.
+It covers the full product lifecycle for a **build-to-order workshop**: order placement (with customer) → production (item-by-item, two taps) → payment collection → completed (Ολοκληρώθηκε), with an audit trail for every action.
 
 Runs on phones, tablets and desktops (any orientation), fully installable as a **PWA**, and is designed for **local-network (LAN) use** with a Cloudflare D1 database online.
 
@@ -10,20 +10,17 @@ Runs on phones, tablets and desktops (any orientation), fully installable as a *
 
 ## Features
 
-- 🧾 **POS order screen** — searchable product grid (name / part number / barcode), category tabs, draft ticket with per-line notes, quantities and oversell guards
-- 📦 **Inventory-aware ordering** — stock deducted atomically when an order is placed; ordering is blocked (or warned, configurable) when stock is insufficient
-- 🔔 **Low-stock alerts** — `stock_quantity <= min_stock` lights up the POS grid, the stock screen and a header bell
-- 🔄 **Full order lifecycle** — `placed → preparing → prepared → boxed → ready → dispatched → completed`, plus `on_hold` and `cancelled` (with automatic restock)
+- 🧾 **POS order screen** — searchable product grid (name / part number / barcode), category tabs, draft ticket with per-line notes, κουτιά + τεμάχια quantities, and a manually quoted € price per line
+- 🏭 **Made to order** — no stock tracking at all: products are pure identifiers, every order is manufactured
+- 🔄 **Full order lifecycle** — `placed → in_production → production_complete → completed`, plus `on_hold` and `cancelled`
 - 🧮 **Daily sequential order numbers** — `ORD-YYYYMMDD-001`, reset per business day (Europe/Athens), allocated atomically
 - ♻️ **Append rounds** — add more items to a live order; each append is a new numbered round
-- 🚫 **Item-level void** — reason + who + when recorded; optional restock on void (configurable)
-- ✅ **Packing checklist** — tick items while boxing, progress bar on the order
-- 🚚 **Courier tracking** — courier + tracking number recorded at hand-off, visible on the timeline
-- 🕓 **Audit everywhere** — `stock_movements` and `order_events` log every change
-- 👥 **Roles** — admin (catalog, stock, settings) vs staff (ordering, prep)
+- 🚫 **Item-level void** — reason + who + when recorded (only before production starts)
+- 🕓 **Audit everywhere** — `order_events` logs every status change, production click, void and close
+- 👥 **One simple login** — order taker and cashier are the same person; job-specific screens (production, ταμείο) instead of role separation
 - 🌗 **Dark & light mode**, 🇬🇧/🇬🇷 **EN/EL bilingual UI**
 - 📲 **PWA** — manifest + service worker + offline shell, installable
-- 📺 **Warehouse wall display** — `/display` turns any iPad/Android tablet into a read-only status board (QUEUE / IN PROGRESS / PREPARED / SHIPPED), auto-refreshing, readable across the aisle
+- 📺 **Warehouse wall display** — `/display` turns any iPad/Android tablet into a read-only status board (Ουρά / Σε παραγωγή / Ολοκληρωμένες / Πληρωμένες), auto-refreshing, readable across the aisle
 - 🔌 **Offline-first** — works without internet: reads from service-worker cache, writes queue in IndexedDB and sync to Cloudflare automatically on reconnect
 - 👵 **Designed for first-time users** — a giant-tile Home launcher (`/home`, the default landing page), 18px base type scaling the whole app, 48px+ touch targets, plain YES/NO confirmations, and automatic Greek on Greek-set devices
 
@@ -284,24 +281,23 @@ A few tablets use a few thousand requests/day. The one caveat: on Free, exceedin
 
 ## How it works
 
-### Order lifecycle & stock rules (build-to-order)
+### Order lifecycle, products & pricing (build-to-order)
 
 ```
 draft (Zustand ticket)
    └─ POST /api/orders ──► placed ─► in_production ─► production_complete ─► completed
      requires a CUSTOMER      │           │                  │                    │
-     (new or existing)        │           │                  │                    └─ cashier collects
-                              │           │                  │                      payment (method + note)
+     (new or existing)        │           │                  │                    └─ collect payment
+                              │           │                  │                      (method + note)
                               │           └─ production manager clicks each item:
                               │              pending ─► "▶ Send" ─► in_production ─► "✔ Done" ─► completed
                               └─ on_hold / cancelled branch off (with audit)
 ```
 
-- **Made to order**: placing an order does **not** deduct shelf stock (the `build_to_order` setting controls this — stock screens remain for whatever you track manually).
+- **Everything is built to order.** Products carry NO stock and NO prices — they are pure identifiers: κωδικός, όνομα, κατηγορία, barcode (optional), περιγραφή (optional), ενεργό.
+- **The price is quoted per order line.** The order taker (who is also the cashier) types the line's price in € while taking the order; totals auto-sum. Closing an order whose items are all produced works from the order page or the Ταμείο — closing auto-completes production if the manager skipped the hand-off button.
 - **Placement is one D1 batch** (implicit transaction): daily number upsert → order row → snapshot items → timeline event.
-- **Prices**: each product carries *items per box* + *price per box* + *price per item*; a line with "2 κουτιά + 3 τεμάχια" prices 2×box + 3×piece, snapshotted at order time.
-- **Item snapshots** (name, part number, both unit prices, line total) mean tickets render forever, even if the product is renamed or deactivated later.
-- **The cashier's close is guarded**: only `production_complete` orders close, and only when every active line is produced (admin can force — visibly, on the timeline).
+- **Item snapshots** (name, part number, quoted line price) mean tickets render forever, even if the product is renamed or deactivated later.
 - Order numbers come from the `order_counters` table (one row per business date) via an atomic `UPSERT … RETURNING`.
 - Pre-build-to-order stages (`preparing…dispatched`) still exist for legacy rows; new orders never use them.
 
@@ -314,16 +310,16 @@ src/
 │   ├── order/              #   POS: product grid + draft ticket
 │   ├── orders/             #   board (active/history) + [id] detail
 │   ├── prep/               #   preparation board (queue → in progress → prepared)
-│   ├── admin/              #   products · categories · stock (admin-only)
+│   ├── admin/              #   products · categories · import (admin-only)
 │   └── api/                #   REST endpoints (auth, products, categories,
-│                           #     orders, stock, settings, health)
+│                           #     orders, close, customers, import, health)
 ├── components/
 │   ├── ui/                 # design-system primitives (button, dialog, …)
 │   ├── layout/             # app shell, nav, theme/locale toggles, PWA install
 │   ├── pos/                # product grid + cart panel
 │   ├── orders/             # board, detail, status badge
 │   ├── prep/               # prep board
-│   └── admin/              # product form, adjust-stock dialog, screens
+│   └── admin/              # product form, import screen
 ├── db/                     # Drizzle schema + D1 client
 ├── lib/                    # domain logic: status machine, order service,
 │                           #   inventory, settings, validation (Zod),
@@ -407,14 +403,13 @@ This export/apply path is a manual runbook for exceptional setups, not an automa
 
 | Task | How |
 |---|---|
-| Take an order | Home → **New order** → pick customer (or create) → tap products → set κουτιά/τεμάχια → big green YES |
+| Take an order | Home → **New order** → pick customer (or create) → tap products → set κουτιά/τεμάχια + line price € → big green YES |
 | Send items to production | Home → **Production** → tap ▶ on each item (or *Send everything*) |
 | Mark production done | Same screen → tap ✔ per item → then **Production finished** |
-| Collect payment & close | Home → **Cashier** → *Collect & close* → tap method → confirm |
+| Collect payment & close | Home → **Cashier** (or the order page) → *Collect & close* → tap method → confirm |
 | Add a customer | Order screen → *Select customer* → *New customer* |
-| Add a product | Admin → Products → *New product* (items/box + per-box/per-item prices) |
+| Add a product | Admin → Products → *New product* — six fields only |
 | Bulk-import customers/products | Admin → Import (JSON/XML — see below) |
-| Fix stock after stocktake | Admin → Stock → *Adjust* → "New quantity" + reason |
 | Change UI language | Header `EL/EN` button (per device) |
 | Switch dark mode | Header moon/sun button (per device) |
 

@@ -250,6 +250,7 @@ const en = {
   // -- Boxes & items (order lines) --
   "pos.boxes": "Boxes",
   "pos.items": "Items",
+  "pos.linePrice": "Price €",
   "pos.perBox": "{price}/box",
   "pos.perItem": "{price}/pc",
 
@@ -547,6 +548,7 @@ const el: Record<MessageKey, string> = {
   // -- Boxes & items (order lines) --
   "pos.boxes": "Κουτιά",
   "pos.items": "Τεμάχια",
+  "pos.linePrice": "Τιμή €",
   "pos.perBox": "{price}/κουτί",
   "pos.perItem": "{price}/τεμ",
 

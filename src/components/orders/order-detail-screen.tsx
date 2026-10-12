@@ -23,7 +23,11 @@ import {
   User,
 } from "lucide-react";
 import type { OrderItem } from "@/db/schema";
-import type { OrdixSessionUser, OrderDetail as OrderDetailData } from "@/types";
+import type {
+  OrdixSessionUser,
+  OrderDetail as OrderDetailData,
+  OrderSummary,
+} from "@/types";
 import { allowedTransitions, ORDER_MAIN_FLOW, STATUS_META, mainFlowIndex } from "@/lib/order-status";
 import { usePolling } from "@/lib/use-polling";
 import { api, showErrorToast } from "@/lib/api-client";
@@ -40,6 +44,7 @@ import { Field } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { LoadingArea } from "@/components/ui/spinner";
 import { StatusBadge } from "@/components/orders/status-badge";
+import { PaymentDialog } from "@/components/cashier/payment-dialog";
 
 // ============================================================
 // SECTION: Order detail screen
@@ -75,6 +80,11 @@ export function OrderDetailScreen({
   const [cancelReason, setCancelReason] = useState("");
   const [resumeOpen, setResumeOpen] = useState(false);
   const [dispatchOpen, setDispatchOpen] = useState(false);
+  const [closingOrder, setClosingOrder] = useState<{
+    id: string;
+    orderNumber: string;
+    totalCents: number;
+  } | null>(null);
 
   if (!order) {
     return <LoadingArea label={t("common.loading")} />;
@@ -369,6 +379,23 @@ export function OrderDetailScreen({
             SECTION: Aside — status actions + courier
             ============================================================ */}
         <div className="space-y-4">
+          {/* Order taker = cashier: close right here when production
+              is done (the Ταμείο screen offers the same action). */}
+          {order.status === "production_complete" && (
+            <Card className="p-4">
+              <Button
+                variant="success"
+                size="xl"
+                className="w-full text-lg"
+                disabled={busy}
+                onClick={() => setClosingOrder(order)}
+              >
+                <Banknote className="h-6 w-6" />
+                {t("cashier.collect")}
+              </Button>
+            </Card>
+          )}
+
           {!isTerminal && (
             <Card className="space-y-2 p-4">
               {/* Primary: advance to the next main-flow stage — the one
@@ -521,6 +548,13 @@ export function OrderDetailScreen({
           await saveTracking(courierName, trackingNumber);
           await transition("dispatched");
         }}
+      />
+
+      {/* Cashier close (same person who took the order) */}
+      <PaymentDialog
+        order={closingOrder}
+        onClose={() => setClosingOrder(null)}
+        onClosed={refresh}
       />
     </div>
   );

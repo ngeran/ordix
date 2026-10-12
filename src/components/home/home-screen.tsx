@@ -14,7 +14,6 @@ import {
   Monitor,
   Package,
   ShoppingCart,
-  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
@@ -125,7 +124,6 @@ export function HomeScreen({ isAdmin }: { isAdmin: boolean }) {
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <AdminTile href="/admin/products" icon={Package} label={t("nav.products")} />
             <AdminTile href="/admin/categories" icon={FolderTree} label={t("nav.categories")} />
-            <AdminTile href="/admin/stock" icon={Warehouse} label={t("nav.stock")} />
             <AdminTile href="/admin/import" icon={FileUp} label={t("import.title")} />
           </div>
         </>

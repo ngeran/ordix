@@ -8,14 +8,13 @@ import { getDb } from "@/db";
 import { categories, products } from "@/db/schema";
 import { errorResponse, requireAdmin, requireUser } from "@/lib/api-auth";
 import { parseJsonBody, productCreateSchema } from "@/lib/validation";
-import { isLowStock } from "@/lib/utils";
 import type { ProductWithCategory } from "@/types";
 
 // ============================================================
 // SECTION: GET /api/products — catalog for POS grid & admin table
 // ------------------------------------------------------------
 // Query params:
-//   q          — case-insensitive search on name + part number
+//   q          — case-insensitive search on name, part number, barcode
 //   categoryId — narrow to one category
 //   active     — "true" → active only (POS), "false" → inactive
 //                only, absent → everything (admin tables)
@@ -56,12 +55,9 @@ export async function GET(request: Request) {
     .where(predicates.length ? and(...predicates) : undefined)
     .orderBy(categories.sortOrder, products.name);
 
-  // -- Compute the low-stock flag server-side so every client
-  //    (POS badge, admin table, stock screen) agrees on it --
   const result: ProductWithCategory[] = rows.map((row) => ({
     ...row.product,
     categoryName: row.categoryName ?? null,
-    isLowStock: isLowStock(row.product.stockQuantity, row.product.minStock),
   }));
 
   return NextResponse.json(result);

@@ -14,7 +14,6 @@ import { useCartStore } from "@/stores/cart-store";
 import { toast } from "@/stores/toast-store";
 import type { Category } from "@/db/schema";
 import type { OrderDetail, ProductWithCategory } from "@/types";
-import type { OrdixSettingsDTO } from "@/types";
 import { cn, formatMoney } from "@/lib/utils";
 import { ProductGrid } from "@/components/pos/product-grid";
 import { CartPanel } from "@/components/pos/cart-panel";
@@ -51,9 +50,6 @@ export function PosScreen() {
   const { data: products, isStale } = usePolling<ProductWithCategory[]>(catalogUrl, {
     intervalMs: 15_000,
   });
-  const { data: settings } = usePolling<OrdixSettingsDTO>("/api/settings", {
-    intervalMs: 120_000,
-  });
 
   // -- Ticket state --
   const customer = useCartStore((state) => state.customer);
@@ -64,10 +60,7 @@ export function PosScreen() {
   const clearCart = useCartStore((state) => state.clearCart);
   const lineCount = items.length;
   const totalCents = items.reduce(
-    (sum, item) =>
-      sum +
-      item.quantityBoxes * item.unitPriceBoxCents +
-      item.quantityItems * item.unitPriceItemCents,
+    (sum, item) => sum + item.linePriceCents,
     0
   );
 
@@ -75,8 +68,6 @@ export function PosScreen() {
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [placing, setPlacing] = useState(false);
-
-  const allowOversell = settings?.allowOversell ?? false;
 
   // ============================================================
   // SECTION: Place order / append round
@@ -100,6 +91,7 @@ export function PosScreen() {
           productId: item.productId,
           quantityBoxes: item.quantityBoxes,
           quantityItems: item.quantityItems,
+          linePriceCents: item.linePriceCents,
           note: item.note ?? undefined,
         })),
       };
@@ -190,18 +182,13 @@ export function PosScreen() {
             onSearch={setSearch}
             selectedCategoryId={selectedCategoryId}
             onSelectCategory={setSelectedCategoryId}
-            allowOversell={allowOversell}
             isStale={isStale}
           />
         </section>
 
         {/* -- Right: ticket (desktop side panel) -- */}
         <aside className="hidden w-96 shrink-0 border-l border-border xl:block">
-          <CartPanel
-            allowOversell={allowOversell}
-            placing={placing}
-            onSubmit={submitTicket}
-          />
+          <CartPanel placing={placing} onSubmit={submitTicket} />
         </aside>
       </div>
 
@@ -226,7 +213,6 @@ export function PosScreen() {
         <div className="fixed inset-0 z-40 flex justify-end bg-black/50 xl:hidden">
           <div className="flex h-full w-full max-w-md flex-col bg-surface shadow-pop">
             <CartPanel
-              allowOversell={allowOversell}
               placing={placing}
               onSubmit={submitTicket}
               onClose={() => setCartOpen(false)}

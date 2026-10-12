@@ -13,9 +13,7 @@ import { z } from "zod";
 //     { "name": "…", "address": "…", "phone": "…", "email": "…", "comments": "…" }
 //   ],
 //   "products": [
-//     { "partNumber": "ALU-PRF-4040", "name": "…", "category": "Aluminum Profiles",
-//       "itemsPerBox": 6, "pricePerBox": 171.00, "pricePerItem": 28.50,
-//       "stock": 10, "minStock": 2 }
+//     { "partNumber": "ALU-PRF-4040", "name": "…", "category": "Aluminum Profiles" }
 //   ]
 // }
 //
@@ -26,10 +24,11 @@ import { z } from "zod";
 // </ordix>
 //
 // Rules:
-//   - prices are written in EUROS (45.50) and stored as cents
 //   - customer identity for updates: phone (if present), else name
 //   - product identity for updates: partNumber (case-insensitive)
 //   - "category" is created automatically when it doesn't exist
+//   - products are pure identifiers (build-to-order): no prices,
+//     no stock — money is quoted per order line
 // ============================================================
 
 // ============================================================
@@ -48,11 +47,6 @@ const rawProductSchema = z.object({
   partNumber: z.string().trim().min(1, "product.partNumber is required"),
   name: z.string().trim().min(1, "product.name is required"),
   category: z.string().trim().optional(),
-  itemsPerBox: z.coerce.number().int().min(0).optional(),
-  pricePerBox: z.coerce.number().min(0).optional(),
-  pricePerItem: z.coerce.number().min(0).optional(),
-  stock: z.coerce.number().int().min(0).optional(),
-  minStock: z.coerce.number().int().min(0).optional(),
 });
 
 export interface ParsedCustomer {
@@ -67,25 +61,12 @@ export interface ParsedProduct {
   partNumber: string;
   name: string;
   category?: string;
-  itemsPerBox?: number;
-  /** Integer cents after euro conversion. */
-  pricePerBoxCents?: number;
-  pricePerItemCents?: number;
-  stockQuantity: number;
-  minStock: number;
 }
 
 export interface ParsedImportFile {
   customers: ParsedCustomer[];
   products: ParsedProduct[];
   errors: string[];
-}
-
-/** EUROS → integer cents, forgiving commas as decimal separators. */
-function eurosToCents(value: number | string): number {
-  const normalized =
-    typeof value === "string" ? Number(value.replace(",", ".")) : value;
-  return Math.round(normalized * 100);
 }
 
 // ============================================================
@@ -122,19 +103,7 @@ function parseJsonImport(content: string): ParsedImportFile {
   rawProducts.forEach((entry, index) => {
     const parsed = rawProductSchema.safeParse(entry);
     if (parsed.success) {
-      const data = parsed.data;
-      products.push({
-        partNumber: data.partNumber,
-        name: data.name,
-        category: data.category,
-        itemsPerBox: data.itemsPerBox,
-        pricePerBoxCents:
-          data.pricePerBox !== undefined ? eurosToCents(data.pricePerBox) : undefined,
-        pricePerItemCents:
-          data.pricePerItem !== undefined ? eurosToCents(data.pricePerItem) : undefined,
-        stockQuantity: data.stock ?? 0,
-        minStock: data.minStock ?? 0,
-      });
+      products.push(parsed.data);
     } else {
       errors.push(`products[${index}]: ${parsed.error.issues[0]?.message}`);
     }
@@ -199,24 +168,10 @@ function parseXmlImport(content: string): ParsedImportFile {
       errors.push(`product[${index}]: <partNumber> and <name> are required`);
       continue;
     }
-    const toNumber = (tag: string): number | undefined => {
-      const raw = xmlField(block, tag);
-      if (raw === undefined) return undefined;
-      const value = Number(raw.replace(",", "."));
-      return Number.isFinite(value) ? value : undefined;
-    };
-    const pricePerBox = toNumber("pricePerBox");
-    const pricePerItem = toNumber("pricePerItem");
     products.push({
       partNumber,
       name,
       category: xmlField(block, "category"),
-      itemsPerBox: toNumber("itemsPerBox"),
-      pricePerBoxCents: pricePerBox !== undefined ? eurosToCents(pricePerBox) : undefined,
-      pricePerItemCents:
-        pricePerItem !== undefined ? eurosToCents(pricePerItem) : undefined,
-      stockQuantity: toNumber("stock") ?? 0,
-      minStock: toNumber("minStock") ?? 0,
     });
   }
 

@@ -171,29 +171,15 @@ export async function POST(request: Request) {
       const match = productByPart.get(product.partNumber.toLowerCase());
 
       if (match) {
-        const changed =
-          match.name !== product.name ||
-          match.itemsPerBox !== (product.itemsPerBox ?? match.itemsPerBox) ||
-          match.pricePerBoxCents !==
-            (product.pricePerBoxCents ?? match.pricePerBoxCents) ||
-          match.pricePerItemCents !==
-            (product.pricePerItemCents ?? match.pricePerItemCents) ||
-          match.minStock !== (product.minStock ?? match.minStock);
-        if (changed && !body.dryRun) {
+        // Only the display name can drift — everything else about a
+        // product is managed in the admin UI.
+        if (match.name !== product.name && !body.dryRun) {
           await db
             .update(products)
-            .set({
-              name: product.name,
-              itemsPerBox: product.itemsPerBox ?? match.itemsPerBox,
-              pricePerBoxCents: product.pricePerBoxCents ?? match.pricePerBoxCents,
-              pricePerItemCents: product.pricePerItemCents ?? match.pricePerItemCents,
-              minStock: product.minStock ?? match.minStock,
-              stockQuantity: product.stockQuantity || match.stockQuantity,
-              updatedAt: new Date(),
-            })
+            .set({ name: product.name, updatedAt: new Date() })
             .where(eq(products.id, match.id));
         }
-        if (changed) report.productsUpdated += 1;
+        if (match.name !== product.name) report.productsUpdated += 1;
         continue;
       }
 
@@ -214,13 +200,6 @@ export async function POST(request: Request) {
           partNumber: product.partNumber,
           name: product.name,
           categoryId,
-          itemsPerBox: product.itemsPerBox ?? null,
-          pricePerBoxCents: product.pricePerBoxCents ?? null,
-          pricePerItemCents: product.pricePerItemCents ?? null,
-          // Base price falls back to the piece price for legacy screens.
-          priceCents: product.pricePerItemCents ?? product.pricePerBoxCents ?? 0,
-          stockQuantity: product.stockQuantity,
-          minStock: product.minStock,
         });
       }
       productByPart.set(product.partNumber.toLowerCase(), {
@@ -230,23 +209,14 @@ export async function POST(request: Request) {
         categoryId,
         description: null,
         imageUrl: null,
-        stockQuantity: product.stockQuantity,
-        minStock: product.minStock,
-        priceCents: product.pricePerItemCents ?? product.pricePerBoxCents ?? 0,
-        itemsPerBox: product.itemsPerBox ?? null,
-        pricePerBoxCents: product.pricePerBoxCents ?? null,
-        pricePerItemCents: product.pricePerItemCents ?? null,
         isActive: true,
-        unit: "pcs",
-        weightGrams: null,
         barcode: null,
-        supplier: null,
-        notes: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
       report.productsCreated += 1;
     }
+    // ============================================================
 
     return NextResponse.json({ dryRun: body.dryRun, ...report });
   } catch (error) {

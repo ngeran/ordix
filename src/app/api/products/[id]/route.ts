@@ -3,9 +3,9 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { orderItems, products, stockMovements } from "@/db/schema";
+import { orderItems, products } from "@/db/schema";
 import { errorResponse, requireAdmin } from "@/lib/api-auth";
 import { parseJsonBody, productUpdateSchema } from "@/lib/validation";
 
@@ -60,25 +60,20 @@ export async function DELETE(
   try {
     const db = await getDb();
 
-    // -- Referential check: orders and stock movements pin the product --
+    // -- Referential check: orders pin the product --
     const [orderRef] = await db
       .select({ count: sql<number>`count(*)` })
       .from(orderItems)
       .where(eq(orderItems.productId, id));
-    const [movementRef] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(stockMovements)
-      .where(eq(stockMovements.productId, id));
 
-    const isReferenced =
-      Number(orderRef?.count ?? 0) > 0 || Number(movementRef?.count ?? 0) > 0;
+    const isReferenced = Number(orderRef?.count ?? 0) > 0;
 
     if (isReferenced) {
       // Soft delete: keep history intact, hide from ordering.
       const [deactivated] = await db
         .update(products)
         .set({ isActive: false, updatedAt: new Date() })
-        .where(and(eq(products.id, id), eq(products.isActive, true)))
+        .where(eq(products.id, id))
         .returning({ id: products.id });
       if (!deactivated) {
         return NextResponse.json({ error: "Product not found" }, { status: 404 });

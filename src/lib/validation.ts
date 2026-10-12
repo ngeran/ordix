@@ -65,7 +65,10 @@ export const customerCreateSchema = z.object({
 export const customerUpdateSchema = customerCreateSchema.partial();
 
 // ============================================================
-// SECTION: Catalog — products
+// SECTION: Catalog — products (pure identifiers, no stock/prices)
+// ------------------------------------------------------------
+// Everything is built to order: the product says WHAT it is, the
+// order line says HOW MANY and for HOW MUCH (quoted per line).
 // ============================================================
 
 export const productCreateSchema = z.object({
@@ -73,21 +76,9 @@ export const productCreateSchema = z.object({
   name: shortText,
   description: optionalText,
   imageUrl: optionalText,
-  stockQuantity: z.coerce.number().int().min(0).max(1_000_000).default(0),
-  minStock: z.coerce.number().int().min(0).max(1_000_000).default(0),
-  /** Integer cents — Zod rejects anything non-integer here. */
-  priceCents: z.coerce.number().int().min(0).max(100_000_000),
-  /** Pieces per box + per-box/per-piece prices (build-to-order). */
-  itemsPerBox: z.coerce.number().int().min(0).max(100_000).optional().nullable(),
-  pricePerBoxCents: z.coerce.number().int().min(0).max(100_000_000).optional().nullable(),
-  pricePerItemCents: z.coerce.number().int().min(0).max(100_000_000).optional().nullable(),
+  barcode: optionalText,
   categoryId: uuid,
   isActive: z.boolean().default(true),
-  unit: z.string().trim().min(1).max(20).default("pcs"),
-  weightGrams: z.coerce.number().int().min(0).max(1_000_000).optional().nullable(),
-  barcode: optionalText,
-  supplier: optionalText,
-  notes: optionalText,
 });
 
 export const productUpdateSchema = productCreateSchema.partial();
@@ -98,13 +89,16 @@ export const productUpdateSchema = productCreateSchema.partial();
 
 /**
  * One cart line: boxes (κουτιά), loose items (τεμάχια) or both —
- * at least one must be greater than zero.
+ * at least one must be greater than zero. The price is quoted per
+ * line (optional — the cashier settles the final amount).
  */
 export const orderItemInputSchema = z
   .object({
     productId: uuid,
     quantityBoxes: z.coerce.number().int().min(0).max(10_000).default(0),
     quantityItems: z.coerce.number().int().min(0).max(100_000).default(0),
+    /** Quoted price for the whole line, in integer cents. */
+    linePriceCents: z.coerce.number().int().min(0).max(100_000_000).default(0),
     note: optionalText,
   })
   .refine(
@@ -131,10 +125,6 @@ export const itemActionSchema = z.discriminatedUnion("action", [
     action: z.literal("void"),
     reason: z.string().trim().min(3, "Reason is required").max(500),
     note: optionalText,
-  }),
-  z.object({
-    action: z.literal("check"),
-    isChecked: z.boolean(),
   }),
   /** Production manager: pending → in_production. */
   z.object({ action: z.literal("send_to_production") }),
@@ -174,42 +164,6 @@ export const trackingSchema = z
 /** Query param for GET /api/orders — narrows the board/history split. */
 export const orderScopeSchema = z.enum(["active", "history", "all"]).default("all");
 
-// ============================================================
-// SECTION: Stock & settings
-// ============================================================
-
-/**
- * Body of POST /api/stock/adjust — either a signed delta or an
- * absolute new quantity (converted to a delta server-side), with
- * a mandatory reason so the audit trail always explains itself.
- */
-export const stockAdjustSchema = z
-  .object({
-    productId: uuid,
-    delta: z.coerce.number().int().optional(),
-    newQuantity: z.coerce.number().int().min(0).optional(),
-    reason: z.string().trim().min(3, "Reason is required").max(500),
-  })
-  .refine(
-    (data) =>
-      (data.delta !== undefined) !== (data.newQuantity !== undefined),
-    "Provide exactly one of: delta or newQuantity"
-  );
-
-/** Body of PATCH /api/settings. */
-export const settingsUpdateSchema = z
-  .object({
-    allowOversell: z.boolean().optional(),
-    restockOnVoid: z.boolean().optional(),
-    buildToOrder: z.boolean().optional(),
-  })
-  .refine(
-    (data) =>
-      data.allowOversell !== undefined ||
-      data.restockOnVoid !== undefined ||
-      data.buildToOrder !== undefined,
-    "At least one setting is required"
-  );
 
 // ============================================================
 // SECTION: Client-side forms

@@ -13,12 +13,12 @@ import { persist } from "zustand/middleware";
 // The cart is pure client state (Zustand + localStorage) until
 // the order is placed — nothing touches D1 until confirmation.
 //
-// Phase 2 (build-to-order):
+// Build-to-order:
 //  - every ticket belongs to a CUSTOMER (selected first, or the
 //    submit is blocked with a friendly nudge)
-//  - lines carry κουτιά (boxes) and τεμάχια (loose items) — one
-//    or both; `piecesPerBox` snapshots the product relation so
-//    unit counts render without refetching the catalog
+//  - lines carry κουτιά (boxes) and τεμάχια (loose items) plus a
+//    MANUALLY QUOTED price — products are unpriced identifiers,
+//    and the order taker is also the cashier
 // ============================================================
 
 export interface CartCustomer {
@@ -30,18 +30,12 @@ export interface CartLine {
   productId: string;
   partNumber: string;
   name: string;
-  /** Pricing relation snapshot from the product. */
-  piecesPerBox: number;
-  hasBoxPrice: boolean;
-  /** Price snapshot hints for the ticket rows (cents). */
-  unitPriceBoxCents: number;
-  unitPriceItemCents: number;
   imageUrl?: string | null;
   quantityBoxes: number;
   quantityItems: number;
+  /** Manually quoted price for the whole line, in integer cents. */
+  linePriceCents: number;
   note?: string;
-  /** Stock level when the line was added — oversell guard. */
-  availableStock: number;
 }
 
 interface CartState {
@@ -54,14 +48,10 @@ interface CartState {
 
   // -- actions --
   setCustomer: (customer: CartCustomer | null) => void;
-  addProduct: (
-    line: Omit<
-      CartLine,
-      "quantityBoxes" | "quantityItems" | "note"
-    >
-  ) => void;
+  addProduct: (line: Omit<CartLine, "quantityBoxes" | "quantityItems" | "note" | "linePriceCents">) => void;
   setBoxes: (productId: string, boxes: number) => void;
   setItems: (productId: string, items: number) => void;
+  setLinePrice: (productId: string, cents: number) => void;
   setNote: (productId: string, note: string) => void;
   removeLine: (productId: string) => void;
   setNotes: (notes: string | null) => void;
@@ -87,8 +77,7 @@ export const useCartStore = create<CartState>()(
 
       addProduct: (line) =>
         set((state) => {
-          // Merge into an existing line for the same product: a tap
-          // adds one BOX when the product is boxed, else one piece.
+          // Merge into an existing line: a repeat tap adds one box.
           const existing = state.items.find(
             (item) => item.productId === line.productId
           );
@@ -96,14 +85,7 @@ export const useCartStore = create<CartState>()(
             return {
               items: state.items.map((item) =>
                 item.productId === line.productId
-                  ? {
-                      ...item,
-                      quantityBoxes:
-                        item.quantityBoxes + (line.piecesPerBox > 1 ? 1 : 0),
-                      quantityItems:
-                        item.quantityItems + (line.piecesPerBox > 1 ? 0 : 1),
-                      availableStock: line.availableStock,
-                    }
+                  ? { ...item, quantityBoxes: item.quantityBoxes + 1 }
                   : item
               ),
             };
@@ -111,11 +93,7 @@ export const useCartStore = create<CartState>()(
           return {
             items: [
               ...state.items,
-              {
-                ...line,
-                quantityBoxes: line.piecesPerBox > 1 ? 1 : 0,
-                quantityItems: line.piecesPerBox > 1 ? 0 : 1,
-              },
+              { ...line, quantityBoxes: 1, quantityItems: 0, linePriceCents: 0 },
             ],
           };
         }),
@@ -128,9 +106,7 @@ export const useCartStore = create<CartState>()(
                 ? { ...item, quantityBoxes: Math.max(0, boxes) }
                 : item
             )
-            .filter(
-              (item) => item.quantityBoxes > 0 || item.quantityItems > 0
-            ),
+            .filter((item) => item.quantityBoxes > 0 || item.quantityItems > 0),
         })),
 
       setItems: (productId, items) =>
@@ -141,9 +117,16 @@ export const useCartStore = create<CartState>()(
                 ? { ...item, quantityItems: Math.max(0, items) }
                 : item
             )
-            .filter(
-              (item) => item.quantityBoxes > 0 || item.quantityItems > 0
-            ),
+            .filter((item) => item.quantityBoxes > 0 || item.quantityItems > 0),
+        })),
+
+      setLinePrice: (productId, cents) =>
+        set((state) => ({
+          items: state.items.map((item) =>
+            item.productId === productId
+              ? { ...item, linePriceCents: Math.max(0, cents) }
+              : item
+          ),
         })),
 
       setNote: (productId, note) =>
@@ -177,26 +160,19 @@ export const useCartStore = create<CartState>()(
 
       totalUnits: () =>
         get().items.reduce(
-          (sum, item) =>
-            sum +
-            item.quantityBoxes * Math.max(1, item.piecesPerBox) +
-            item.quantityItems,
+          (sum, item) => sum + item.quantityBoxes + item.quantityItems,
           0
         ),
 
       totalCents: () =>
-        get().items.reduce(
-          (sum, item) =>
-            sum +
-            item.quantityBoxes * item.unitPriceBoxCents +
-            item.quantityItems * item.unitPriceItemCents,
-          0
-        ),
+        get().items.reduce((sum, item) => sum + item.linePriceCents, 0),
     }),
     {
       name: "ordix-cart",
-      version: 2,
-      // v1 → v2: old single-quantity lines migrate to loose items.
+      version: 3,
+      // v2 → v3: priced-product lines lose their computed price
+      // (products are unpriced now) — the quoted price resets to 0
+      // and is typed per line by the order taker.
       migrate: (persisted) => {
         const state = persisted as Partial<CartState>;
         const legacyItems = (state.items ?? []) as unknown as Array<
@@ -208,14 +184,9 @@ export const useCartStore = create<CartState>()(
           notes: state.notes ?? null,
           items: legacyItems.map((item) => ({
             ...item,
-            quantityBoxes: 0,
-            quantityItems: Number(item.quantity ?? 0),
-            piecesPerBox: Number(item.piecesPerBox ?? 1),
-            hasBoxPrice: Boolean(item.hasBoxPrice),
-            unitPriceBoxCents: Number(item.unitPriceBoxCents ?? 0),
-            unitPriceItemCents: Number(
-              item.unitPriceItemCents ?? item.unitPriceCents ?? 0
-            ),
+            quantityBoxes: Number(item.quantityBoxes ?? 0),
+            quantityItems: Number(item.quantityItems ?? 0),
+            linePriceCents: 0,
           })),
           appendOrderId: null,
           appendOrderLabel: null,
