@@ -231,6 +231,11 @@ export function OrderDetailScreen({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [resumeOpen, setResumeOpen] = useState(false);
+  // NOTE: every hook in this component MUST sit above the
+  // `if (!order)` early return below — a hook after it changes
+  // the hook count between the loading and loaded renders
+  // (React error #310).
+  const [closingOrder, setClosingOrder] = useState(false);
 
   if (!order) {
     return <LoadingArea label={t("common.loading")} />;
@@ -250,7 +255,6 @@ export function OrderDetailScreen({
   const canClose =
     order.status === "production_complete" ||
     (order.status === "in_production" && allItemsProduced(activeItems));
-  const [closingOrder, setClosingOrder] = useState(false);
 
   // ============================================================
   // SECTION: Mutations
