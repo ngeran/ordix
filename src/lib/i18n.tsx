@@ -142,7 +142,7 @@ const en = {
   "detail.inProduction": "In production",
   "detail.produced": "Produced",
   "detail.paidInfo": "Paid by {method} · {time}",
-  "detail.productionDone": "Production completed — waiting for payment",
+  "detail.productionDone": "Production completed — the cashier closes this order from the Ταμείο screen",
 
   // -- Prep board --
   "prep.title": "Preparation",
@@ -462,7 +462,7 @@ const el: Record<MessageKey, string> = {
   "detail.inProduction": "Σε παραγωγή",
   "detail.produced": "Παράχθηκε",
   "detail.paidInfo": "Πληρώθηκε με {method} · {time}",
-  "detail.productionDone": "Η παραγωγή ολοκληρώθηκε — αναμονή πληρωμής",
+  "detail.productionDone": "Η παραγωγή ολοκληρώθηκε — το Ταμείο κλείνει την παραγγελία",
 
   // -- Prep board --
   "prep.title": "Προετοιμασία",

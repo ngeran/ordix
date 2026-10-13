@@ -10,6 +10,11 @@ import type { OrderStatus } from "@/db/schema";
 // The main flow is strictly linear — one step at a time — so a
 // packed box can never be marked "preparing" by a stray tap.
 // `on_hold` and `cancelled` branch off any active stage.
+//
+// NOTE: production_complete → completed is NOT a legal
+// transition here. Completion happens ONLY through the cashier's
+// dedicated close endpoint (POST /api/orders/[id]/close) — the
+// production manager can never close or complete an order.
 // ============================================================
 
 /** The build-to-order happy path (Phase 2). */
@@ -48,7 +53,8 @@ const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   // -- Build-to-order chain --
   placed: ["in_production", "on_hold", "cancelled"],
   in_production: ["production_complete", "on_hold", "cancelled"],
-  production_complete: ["completed", "in_production", "cancelled"],
+  // No "completed": only the cashier's close endpoint completes.
+  production_complete: ["in_production", "cancelled"],
   // Held orders resume to any not-yet-reached stage, or cancel.
   on_hold: ["placed", "in_production", "production_complete", "cancelled"],
   // -- Legacy chains (old rows only — new orders never land here) --

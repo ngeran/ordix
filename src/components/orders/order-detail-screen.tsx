@@ -26,9 +26,9 @@ import type { OrderItem } from "@/db/schema";
 import type {
   OrdixSessionUser,
   OrderDetail as OrderDetailData,
-  OrderSummary,
 } from "@/types";
 import { allowedTransitions, ORDER_MAIN_FLOW, STATUS_META, mainFlowIndex } from "@/lib/order-status";
+
 import { usePolling } from "@/lib/use-polling";
 import { api, showErrorToast } from "@/lib/api-client";
 import { useLocale, useT } from "@/lib/i18n";
@@ -44,7 +44,6 @@ import { Field } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { LoadingArea } from "@/components/ui/spinner";
 import { StatusBadge } from "@/components/orders/status-badge";
-import { CloseOrderDialog } from "@/components/cashier/close-order-dialog";
 
 // ============================================================
 // SECTION: Pending quantity editor
@@ -225,11 +224,6 @@ export function OrderDetailScreen({
   const [cancelReason, setCancelReason] = useState("");
   const [resumeOpen, setResumeOpen] = useState(false);
   const [dispatchOpen, setDispatchOpen] = useState(false);
-  const [closingOrder, setClosingOrder] = useState<{
-    id: string;
-    orderNumber: string;
-    totalCents: number;
-  } | null>(null);
 
   if (!order) {
     return <LoadingArea label={t("common.loading")} />;
@@ -528,30 +522,19 @@ export function OrderDetailScreen({
 
         {/* ============================================================
             SECTION: Aside — status actions + courier
+            ------------------------------------------------------------
+            NO close/complete buttons here: production_complete
+            orders are closed ONLY from the Ταμείο screen (the
+            server rejects any direct completed transition).
             ============================================================ */}
         <div className="space-y-4">
-          {/* Order taker = cashier: close right here when production
-              is done (the Ταμείο screen offers the same action). */}
-          {order.status === "production_complete" && (
-            <Card className="p-4">
-              <Button
-                variant="success"
-                size="xl"
-                className="w-full text-lg"
-                disabled={busy}
-                onClick={() => setClosingOrder(order)}
-              >
-                <Banknote className="h-6 w-6" />
-                {t("cashier.collect")}
-              </Button>
-            </Card>
-          )}
-
           {!isTerminal && (
             <Card className="space-y-2 p-4">
               {/* Primary: advance to the next main-flow stage — the one
-                  obvious action, extra large for first-time users */}
-              {nextStage && nextStage !== "dispatched" && (
+                  obvious action, extra large for first-time users.
+                  (No advance to "completed": that's the cashier's job
+                  via the Ταμείο screen's close button.) */}
+              {nextStage && !["dispatched", "completed"].includes(nextStage) && (
                 <Button
                   size="xl"
                   className="w-full text-lg"
@@ -562,7 +545,7 @@ export function OrderDetailScreen({
                   {t("detail.advance", { status: STATUS_META[nextStage][locale] })}
                 </Button>
               )}
-              {/* Dispatch gets its own dialog (courier + tracking) */}
+              {/* Dispatch gets its own dialog (courier + tracking) — legacy */}
               {nextStage === "dispatched" && (
                 <Button size="xl" className="w-full text-lg" disabled={busy} onClick={() => setDispatchOpen(true)}>
                   <Send className="h-6 w-6" />
@@ -570,24 +553,27 @@ export function OrderDetailScreen({
                 </Button>
               )}
 
-              {/* Hold / resume */}
-              {order.status === "on_hold" ? (
-                <Button variant="secondary" className="w-full" disabled={busy} onClick={() => setResumeOpen(true)}>
-                  <Play className="h-5 w-5" />
-                  {t("detail.resume")}
-                </Button>
-              ) : (
+              {/* Hold / resume — only where the state machine allows it */}
+              {allowedTransitions(order.status).includes("on_hold") && order.status !== "on_hold" && (
                 <Button variant="secondary" className="w-full" disabled={busy} onClick={() => transition("on_hold")}>
                   <Pause className="h-5 w-5" />
                   {t("detail.hold")}
                 </Button>
               )}
+              {order.status === "on_hold" && (
+                <Button variant="secondary" className="w-full" disabled={busy} onClick={() => setResumeOpen(true)}>
+                  <Play className="h-5 w-5" />
+                  {t("detail.resume")}
+                </Button>
+              )}
 
               {/* Cancel */}
-              <Button variant="danger" className="w-full" disabled={busy} onClick={() => setCancelOpen(true)}>
-                <Ban className="h-5 w-5" />
-                {t("detail.cancelOrder")}
-              </Button>
+              {allowedTransitions(order.status).includes("cancelled") && (
+                <Button variant="danger" className="w-full" disabled={busy} onClick={() => setCancelOpen(true)}>
+                  <Ban className="h-5 w-5" />
+                  {t("detail.cancelOrder")}
+                </Button>
+              )}
             </Card>
           )}
 
@@ -701,12 +687,6 @@ export function OrderDetailScreen({
         }}
       />
 
-      {/* Cashier close (same person who took the order) */}
-      <CloseOrderDialog
-        order={closingOrder}
-        onClose={() => setClosingOrder(null)}
-        onClosed={refresh}
-      />
     </div>
   );
 }
