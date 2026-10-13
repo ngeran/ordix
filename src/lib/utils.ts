@@ -29,11 +29,6 @@ export function formatMoney(cents: number, locale: "en" | "el" = "en"): string {
   }).format(cents / 100);
 }
 
-/** Compact quantity: drops a trailing ".0" for whole numbers. */
-export function formatQuantity(quantity: number, unit: string): string {
-  return `${quantity} ${unit}`;
-}
-
 // ============================================================
 // SECTION: Date & business-day helpers
 // ------------------------------------------------------------
@@ -85,13 +80,8 @@ export function formatRelativeTime(
 }
 
 // ============================================================
-// SECTION: Stock helpers
+// SECTION: Misc helpers
 // ============================================================
-
-/** Low-stock rule: at or below the user-defined threshold. */
-export function isLowStock(stockQuantity: number, minStock: number): boolean {
-  return stockQuantity <= minStock;
-}
 
 /** Clamp helper for quantity inputs. */
 export function clamp(value: number, min: number, max: number): number {

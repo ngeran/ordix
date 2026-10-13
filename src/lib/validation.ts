@@ -161,17 +161,6 @@ export const statusUpdateSchema = z.object({
   note: optionalText,
 });
 
-/** Body of POST /api/orders/[id]/tracking — courier hand-off. */
-export const trackingSchema = z
-  .object({
-    courierName: optionalText,
-    trackingNumber: optionalText,
-  })
-  .refine(
-    (data) => data.courierName || data.trackingNumber,
-    "Courier name or tracking number is required"
-  );
-
 /** Query params for GET /api/orders — board/dashboard filters. */
 export const orderListQuerySchema = z.object({
   scope: z.enum(["active", "history", "all"]).default("all"),

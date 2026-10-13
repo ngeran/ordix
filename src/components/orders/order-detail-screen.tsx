@@ -11,7 +11,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Ban,
-  Banknote,
+  CheckCircle2,
   Clock,
   Lock,
   PackageCheck,
@@ -231,7 +231,6 @@ export function OrderDetailScreen({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [resumeOpen, setResumeOpen] = useState(false);
-  const [dispatchOpen, setDispatchOpen] = useState(false);
 
   if (!order) {
     return <LoadingArea label={t("common.loading")} />;
@@ -287,19 +286,6 @@ export function OrderDetailScreen({
     }
   };
 
-  const saveTracking = async (courierName: string, trackingNumber: string) => {
-    setBusy(true);
-    try {
-      await api.post(`/api/orders/${orderId}/tracking`, { courierName, trackingNumber });
-      toast.success(t("detail.trackingSaved"));
-      refresh();
-    } catch (error) {
-      showErrorToast(error, t("error.generic"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const startAppend = () => {
     useCartStore.getState().startAppend(order.id, order.orderNumber);
     router.push("/order");
@@ -343,13 +329,8 @@ export function OrderDetailScreen({
         </span>
         {order.paidAt && (
           <span className="flex items-center gap-1.5 font-medium text-success">
-            <Banknote className="h-4 w-4" aria-hidden />
-            {t("detail.paidInfo", {
-              method: order.paymentMethod
-                ? t(`cashier.${order.paymentMethod}` as "cashier.cash")
-                : "—",
-              time: formatDateTime(order.paidAt, locale),
-            })}
+            <CheckCircle2 className="h-4 w-4" aria-hidden />
+            {t("detail.closedInfo", { time: formatDateTime(order.paidAt, locale) })}
           </span>
         )}
       </div>
@@ -576,14 +557,6 @@ export function OrderDetailScreen({
                   {t("detail.advance", { status: STATUS_META[nextStage][locale] })}
                 </Button>
               )}
-              {/* Dispatch gets its own dialog (courier + tracking) — legacy */}
-              {nextStage === "dispatched" && (
-                <Button size="xl" className="w-full text-lg" disabled={busy} onClick={() => setDispatchOpen(true)}>
-                  <Send className="h-6 w-6" />
-                  {t("detail.advance", { status: STATUS_META.dispatched[locale] })}
-                </Button>
-              )}
-
               {/* Hold / resume — only where the state machine allows it */}
               {allowedTransitions(order.status).includes("on_hold") && order.status !== "on_hold" && (
                 <Button variant="secondary" className="w-full" disabled={busy} onClick={() => transition("on_hold")}>
@@ -608,19 +581,6 @@ export function OrderDetailScreen({
             </Card>
           )}
 
-          {/* Courier / tracking card — legacy flow only: new orders
-              end at the cashier, so only show it when courier data
-              already exists (old orders) or a legacy stage is active */}
-          {(order.courierName ||
-            order.trackingNumber ||
-            ["ready", "dispatched"].includes(order.status)) && (
-            <TrackingCard
-              order={order}
-              busy={busy}
-              onSave={saveTracking}
-              onDispatch={() => transition("dispatched")}
-            />
-          )}
         </div>
       </div>
 
@@ -706,18 +666,6 @@ export function OrderDetailScreen({
         </div>
       </Dialog>
 
-      {/* Dispatch — optionally record courier + tracking first (legacy) */}
-      <DispatchDialog
-        open={dispatchOpen}
-        busy={busy}
-        order={order}
-        onClose={() => setDispatchOpen(false)}
-        onConfirm={async (courierName, trackingNumber) => {
-          await saveTracking(courierName, trackingNumber);
-          await transition("dispatched");
-        }}
-      />
-
       {/* Department closure dialog (the ONLY completion path) */}
       <CloseOrderDialog
         order={
@@ -727,59 +675,6 @@ export function OrderDetailScreen({
         onClosed={refresh}
       />
     </div>
-  );
-}
-
-// ============================================================
-// SECTION: Tracking card (aside)
-// ============================================================
-
-function TrackingCard({
-  order,
-  busy,
-  onSave,
-  onDispatch,
-}: {
-  order: OrderDetailData;
-  busy: boolean;
-  onSave: (courierName: string, trackingNumber: string) => void;
-  onDispatch: () => void;
-}) {
-  const t = useT();
-  const [courier, setCourier] = useState(order.courierName ?? "");
-  const [tracking, setTracking] = useState(order.trackingNumber ?? "");
-
-  return (
-    <Card className="space-y-3 p-4">
-      <h2 className="flex items-center gap-2 font-semibold">
-        <Truck className="h-5 w-5 text-primary" aria-hidden />
-        {t("detail.courier")}
-      </h2>
-      <Field label={t("detail.courier")} htmlFor="courier">
-        <Input
-          id="courier"
-          value={courier}
-          onChange={(event) => setCourier(event.target.value)}
-          placeholder="ACS / ELTA / Box Now…"
-        />
-      </Field>
-      <Field label={t("detail.tracking")} htmlFor="tracking">
-        <Input
-          id="tracking"
-          value={tracking}
-          onChange={(event) => setTracking(event.target.value)}
-        />
-      </Field>
-      <Button className="w-full" loading={busy} onClick={() => onSave(courier, tracking)}>
-        {t("detail.saveTracking")}
-      </Button>
-      {order.status === "ready" && (
-        <Button variant="success" className="w-full" loading={busy} onClick={onDispatch}>
-          <Send className="h-5 w-5" />
-          {t("detail.advance", { status: STATUS_META.dispatched.en })}
-        </Button>
-      )}
-    </Card>
   );
 }
 
@@ -850,68 +745,3 @@ function VoidItemDialog({
   );
 }
 
-// ============================================================
-// SECTION: Dispatch dialog
-// ============================================================
-
-function DispatchDialog({
-  open,
-  busy,
-  order,
-  onClose,
-  onConfirm,
-}: {
-  open: boolean;
-  busy: boolean;
-  order: OrderDetailData;
-  onClose: () => void;
-  onConfirm: (courierName: string, trackingNumber: string) => void;
-}) {
-  const t = useT();
-  const [courier, setCourier] = useState(order.courierName ?? "");
-  const [tracking, setTracking] = useState(order.trackingNumber ?? "");
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={STATUS_META.dispatched.en}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            loading={busy}
-            onClick={() => {
-              onClose();
-              onConfirm(courier.trim(), tracking.trim());
-            }}
-          >
-            <PackageCheck className="h-5 w-5" />
-            {t("common.confirm")}
-          </Button>
-        </>
-      }
-    >
-      <p className="mb-3 text-sm text-on-surface-muted">{t("detail.dispatchHint")}</p>
-      <div className="space-y-3">
-        <Field label={t("detail.courier")} htmlFor="dispatch-courier">
-          <Input
-            id="dispatch-courier"
-            value={courier}
-            onChange={(event) => setCourier(event.target.value)}
-            placeholder="ACS / ELTA / Box Now…"
-          />
-        </Field>
-        <Field label={t("detail.tracking")} htmlFor="dispatch-tracking">
-          <Input
-            id="dispatch-tracking"
-            value={tracking}
-            onChange={(event) => setTracking(event.target.value)}
-          />
-        </Field>
-      </div>
-    </Dialog>
-  );
-}

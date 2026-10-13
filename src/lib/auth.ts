@@ -12,14 +12,14 @@ import { users, type UserRole } from "@/db/schema";
 // ============================================================
 // SECTION: Login rate limiting (per-isolate, best-effort)
 // ------------------------------------------------------------
-// Simple in-memory lockout: 5 failures → 30 s lockout, keyed by
+// Simple in-memory lockout: 5 failures → 60 s lockout, keyed by
 // email. On Workers the map lives per isolate, so it is a speed
 // bump rather than a hard guarantee — real protection comes from
 // strong passwords; this slows automated credential stuffing.
 // ============================================================
 
 const MAX_FAILURES = 5;
-const LOCKOUT_MS = 30_000;
+const LOCKOUT_MS = 60_000;
 
 const failureCounts = new Map<string, { count: number; lockedUntil: number }>();
 
@@ -97,7 +97,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    // Warehouse tablets stay signed in for a week; a stolen
+    // session is low-risk (no payments) but bounded is better.
+    maxAge: 7 * 24 * 60 * 60, // 7 days, in seconds
+  },
   callbacks: {
     // Mint id + role into the JWT right after successful login.
     async jwt({ token, user }) {

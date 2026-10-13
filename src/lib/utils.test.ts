@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatOrderNumber } from "@/lib/order-status";
-import {
-  clamp,
-  formatMoney,
-  getBusinessDate,
-  isLowStock,
-} from "@/lib/utils";
+import { clamp, formatMoney, getBusinessDate } from "@/lib/utils";
 
 // Runner smoke test (Phase 0): proves vitest resolves the @ alias
 // and the money/format helpers behave. Lifecycle-specific tests
@@ -33,13 +28,8 @@ describe("formatOrderNumber", () => {
   });
 });
 
-describe("isLowStock / clamp", () => {
-  it("flags stock at or below the threshold", () => {
-    expect(isLowStock(15, 15)).toBe(true);
-    expect(isLowStock(16, 15)).toBe(false);
-  });
-
-  it("clamps values into range", () => {
+describe('clamp', () => {
+  it('clamps values into range', () => {
     expect(clamp(-3, 0, 10)).toBe(0);
     expect(clamp(42, 0, 10)).toBe(10);
   });
