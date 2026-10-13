@@ -3,7 +3,7 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { asBatch, getDb } from "@/db";
 import {
@@ -119,6 +119,57 @@ export async function POST(
       statements.push(
         db.update(orders).set({ totalCents: 0 }).where(eq(orders.id, orderId))
       );
+    }
+
+    // -- Handoff to the cashier: the manager's "production finished"
+    // IS the statement that every item is produced. Any items not
+    // individually clicked through are auto-completed here, stamped
+    // with this user — so the cashier can never hit a dead end. --
+    if (targetStatus === "production_complete") {
+      const pendingItems = await db
+        .select({ id: orderItems.id, name: orderItems.name })
+        .from(orderItems)
+        .where(
+          and(
+            eq(orderItems.orderId, orderId),
+            eq(orderItems.status, "active"),
+            sql`${orderItems.productionStatus} <> 'completed'`
+          )
+        );
+
+      if (pendingItems.length > 0) {
+        const now = new Date();
+        // Raw sql template: D1 needs epoch seconds, not a Date object.
+        const nowEpoch = Math.floor(now.getTime() / 1000);
+        statements.push(
+          db
+            .update(orderItems)
+            .set({
+              productionStatus: "completed",
+              sentToProductionAt: sql`coalesce(${orderItems.sentToProductionAt}, ${nowEpoch})`,
+              sentToProductionById: sql`coalesce(${orderItems.sentToProductionById}, ${user.id})`,
+              productionCompletedAt: now,
+              productionCompletedById: user.id,
+            })
+            .where(
+              and(
+                eq(orderItems.orderId, orderId),
+                eq(orderItems.status, "active"),
+                sql`${orderItems.productionStatus} <> 'completed'`
+              )
+            )
+        );
+        statements.push(
+          db.insert(orderEvents).values({
+            id: crypto.randomUUID(),
+            orderId,
+            fromStatus: order.status,
+            toStatus: "production_complete",
+            userId: user.id,
+            note: `${pendingItems.length} item(s) auto-completed at production handoff`,
+          })
+        );
+      }
     }
 
     // -- Timeline event (both hold and resume are visible) --
