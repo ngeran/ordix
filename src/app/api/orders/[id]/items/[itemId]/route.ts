@@ -8,7 +8,11 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { asBatch, getDb } from "@/db";
 import { orderEvents, orderItems, orders } from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
-import { itemActionSchema, parseJsonBody } from "@/lib/validation";
+import {
+  itemActionSchema,
+  itemEditSchema,
+  parseJsonBody,
+} from "@/lib/validation";
 import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-service";
 
 // ============================================================
@@ -23,6 +27,82 @@ import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-ser
 // ============================================================
 
 const VOIDABLE_STATUSES = ["placed", "in_production", "on_hold"];
+
+// ============================================================
+// SECTION: PATCH — edit quantities of a pending line
+// ------------------------------------------------------------
+// The order taker can correct κουτιά / τεμάχια numbers until the
+// production manager sends the line to production. The order
+// total is recomputed after every edit.
+// ============================================================
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string; itemId: string }> }
+) {
+  const guard = await requireUser();
+  if (!guard.ok) return guard.response;
+  const user = guard.user;
+  const { id: orderId, itemId } = await params;
+
+  try {
+    const db = await getDb();
+    const input = await parseJsonBody(request, itemEditSchema);
+
+    const order = await getOrder(db, orderId);
+    if (!order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    if (!VOIDABLE_STATUSES.includes(order.status)) {
+      return NextResponse.json(
+        { error: `Items cannot be edited while the order is ${order.status}` },
+        { status: 409 }
+      );
+    }
+
+    const [item] = await db
+      .select()
+      .from(orderItems)
+      .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)))
+      .limit(1);
+    if (!item) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+    if (item.status !== "active" || item.productionStatus !== "pending") {
+      return NextResponse.json(
+        { error: "Item is already in production and cannot be edited" },
+        { status: 409 }
+      );
+    }
+
+    await db.batch(
+      asBatch([
+        db
+          .update(orderItems)
+          .set({
+            quantityBoxes: input.quantityBoxes,
+            quantityItems: input.quantityItems,
+            quantity: input.quantityBoxes + input.quantityItems,
+          })
+          .where(eq(orderItems.id, itemId)),
+        db.insert(orderEvents).values({
+          id: crypto.randomUUID(),
+          orderId,
+          fromStatus: order.status,
+          toStatus: order.status,
+          userId: user.id,
+          note: `Edited: ${item.name} → ${input.quantityBoxes} boxes + ${input.quantityItems} items`,
+        }),
+      ])
+    );
+    await recalculateOrderTotal(db, orderId);
+
+    const detail = await getOrderDetail(db, orderId);
+    return NextResponse.json(detail);
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
 
 export async function POST(
   request: Request,

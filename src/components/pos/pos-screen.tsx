@@ -13,29 +13,24 @@ import { useT } from "@/lib/i18n";
 import { useCartStore } from "@/stores/cart-store";
 import { toast } from "@/stores/toast-store";
 import type { Category } from "@/db/schema";
-import type {
-  OrderDetail,
-  ProductWithCategory,
-} from "@/types";
+import type { OrderDetail, ProductWithCategory } from "@/types";
 import { cn } from "@/lib/utils";
 import { ProductGrid } from "@/components/pos/product-grid";
 import { CartPanel } from "@/components/pos/cart-panel";
 import { CustomerPicker } from "@/components/pos/customer-picker";
-import {
-  CalculatorPanel,
-  type ActivePart,
-} from "@/components/pos/calculator-panel";
 import { Button } from "@/components/ui/button";
 import { LoadingArea } from "@/components/ui/spinner";
 
 // ============================================================
-// SECTION: POS screen — the Box + Item Split workflow
+// SECTION: POS screen — the order-taking terminal
 // ------------------------------------------------------------
 //   1. customer banner (step 1, mandatory)
-//   2. tap a part card → it loads into the SPLIT CALCULATOR
-//      (κουτιά / τεμάχια steppers + glove presets + quoted €)
-//   3. Apply → the line lands in the ORDER TRAY
+//   2. tap "+ Add to Tray" on a part card → one box lands in
+//      the ORDER TRAY
+//   3. in the tray: type or step the κουτιά / τεμάχια numbers
 //   4. giant green confirm → straight to production
+// Catalog on the left, tray on the right (desktop); the tray
+// becomes a drawer on tablets and phones.
 // ============================================================
 
 export function PosScreen() {
@@ -54,15 +49,13 @@ export function PosScreen() {
   // -- Ticket state --
   const customer = useCartStore((state) => state.customer);
   const items = useCartStore((state) => state.items);
-  const upsertLine = useCartStore((state) => state.upsertLine);
+  const addProduct = useCartStore((state) => state.addProduct);
   const appendOrderId = useCartStore((state) => state.appendOrderId);
   const appendOrderLabel = useCartStore((state) => state.appendOrderLabel);
   const stopAppend = useCartStore((state) => state.stopAppend);
   const clearCart = useCartStore((state) => state.clearCart);
 
   const lineCount = items.length;
-  // -- Calculator state (the tapped part) --
-  const [activePart, setActivePart] = useState<ActivePart | null>(null);
 
   // -- UI state --
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
@@ -70,43 +63,17 @@ export function PosScreen() {
   const [placing, setPlacing] = useState(false);
 
   // ============================================================
-  // SECTION: Card tap → calculator (loads existing line if queued)
+  // SECTION: Add to tray (one box per tap; adjust in the tray)
   // ============================================================
 
-  const selectPart = (product: ProductWithCategory) => {
-    const existing = items.find((item) => item.productId === product.id);
-    setActivePart({
+  const addToTray = (product: ProductWithCategory) => {
+    addProduct({
       productId: product.id,
       partNumber: product.partNumber,
       name: product.name,
       piecesPerBox: Math.max(1, product.itemsPerBox ?? 1),
-      boxes: existing?.quantityBoxes ?? 1,
-      items: existing?.quantityItems ?? 0,
-      linePriceCents: existing?.linePriceCents ?? 0,
+      imageUrl: product.imageUrl,
     });
-    // Small screens: reveal the calculator drawer immediately.
-    if (typeof window !== "undefined" && window.innerWidth < 1280) {
-      setDrawerOpen(true);
-    }
-  };
-
-  const applyPart = (part: ActivePart) => {
-    const existing = items.find((item) => item.productId === part.productId);
-    upsertLine({
-      productId: part.productId,
-      partNumber: part.partNumber,
-      name: part.name,
-      imageUrl:
-        products?.find((product) => product.id === part.productId)?.imageUrl ??
-        existing?.imageUrl ??
-        null,
-      quantityBoxes: part.boxes,
-      quantityItems: part.items,
-      linePriceCents: part.linePriceCents,
-      note: existing?.note,
-    });
-    setActivePart(null);
-    toast.success(t("calc.applied"));
   };
 
   // ============================================================
@@ -114,7 +81,11 @@ export function PosScreen() {
   // ============================================================
 
   const submitTicket = async () => {
-    if (items.length === 0 || placing) return;
+    // 0/0 lines are drafts — never submitted.
+    const placeable = items.filter(
+      (item) => item.quantityBoxes > 0 || item.quantityItems > 0
+    );
+    if (placeable.length === 0 || placing) return;
 
     if (!appendOrderId && !customer) {
       toast.warning(t("customer.required"));
@@ -126,11 +97,10 @@ export function PosScreen() {
     try {
       const payload = {
         notes: useCartStore.getState().notes ?? undefined,
-        items: items.map((item) => ({
+        items: placeable.map((item) => ({
           productId: item.productId,
           quantityBoxes: item.quantityBoxes,
           quantityItems: item.quantityItems,
-          linePriceCents: item.linePriceCents,
           note: item.note ?? undefined,
         })),
       };
@@ -228,32 +198,24 @@ export function PosScreen() {
           <ProductGrid
             products={products}
             categories={categories ?? []}
-            activeProductId={activePart?.productId}
             isStale={isStale}
-            onSelect={selectPart}
+            onAdd={addToTray}
           />
         </section>
 
-        {/* -- Right: calculator + order tray (xl+) -- */}
-        <aside className="hidden w-[420px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border p-4 scrollbar-thin xl:flex">
-          {activePart && (
-            <CalculatorPanel
-              part={activePart}
-              setPart={setActivePart}
-              onApply={applyPart}
-            />
-          )}
+        {/* -- Right: order tray (xl+) -- */}
+        <aside className="hidden w-96 shrink-0 flex-col border-l border-border p-4 xl:flex">
           <CartPanel placing={placing} onSubmit={submitTicket} />
         </aside>
       </div>
 
-      {/* -- Mobile/tablet: floating ticket bar → drawer -- */}
+      {/* -- Mobile/tablet: floating tray bar → drawer -- */}
       <button
         onClick={() => setDrawerOpen(true)}
-        disabled={lineCount === 0 && !activePart && !appendOrderId}
+        disabled={lineCount === 0 && !appendOrderId}
         className={cn(
           "fixed bottom-20 right-4 z-30 flex items-center gap-3 rounded-2xl bg-primary px-6 py-5 text-lg font-bold text-on-primary shadow-pop transition-opacity lg:bottom-6 xl:hidden",
-          lineCount === 0 && !activePart && !appendOrderId && "pointer-events-none opacity-0"
+          lineCount === 0 && !appendOrderId && "pointer-events-none opacity-0"
         )}
         aria-label={`${lineCount} ${t("common.items")}`}
       >
@@ -261,20 +223,10 @@ export function PosScreen() {
         <span>{lineCount}</span>
       </button>
 
-      {/* Drawer (below xl): calculator + tray stacked */}
+      {/* Tray drawer (below xl) */}
       {drawerOpen && (
         <div className="fixed inset-0 z-40 flex justify-end bg-black/50 xl:hidden">
           <div className="scrollbar-thin flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto bg-surface p-3 shadow-pop">
-            {activePart && (
-              <CalculatorPanel
-                part={activePart}
-                setPart={setActivePart}
-                onApply={(part) => {
-                  applyPart(part);
-                  setDrawerOpen(false);
-                }}
-              />
-            )}
             <CartPanel
               placing={placing}
               onSubmit={submitTicket}

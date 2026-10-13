@@ -3,22 +3,23 @@
 // ============================================================
 
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Inter } from "next/font/google";
 import { auth } from "@/lib/auth";
 import { AppShell } from "@/components/layout/app-shell";
 import { ToastViewport } from "@/components/ui/toast";
 import "./globals.css";
 
 // ============================================================
-// SECTION: Brand font — Plus Jakarta Sans (Tactile Warehouse OS)
+// SECTION: Brand font — Inter (Tactile Warehouse OS mockup)
 // ------------------------------------------------------------
-// Wide apertures and clean stroke distinctions keep 0/O and 1/l
-// unambiguous on warehouse tablets and handheld scanners.
+// Full Greek + Latin coverage (Jakarta had no Greek glyphs) with
+// the tall x-height and unambiguous digits the warehouse floor
+// needs at arm's length.
 // ============================================================
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  variable: "--font-jakarta",
+const inter = Inter({
+  subsets: ["latin", "greek"],
+  variable: "--font-inter",
   display: "swap",
 });
 
@@ -94,7 +95,7 @@ export default async function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className={`${jakarta.variable} antialiased`}>
+      <body className={`${inter.variable} antialiased`}>
         <AppShell user={session?.user ?? null}>{children}</AppShell>
         <ToastViewport />
       </body>

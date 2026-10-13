@@ -134,6 +134,17 @@ export const itemActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("complete_production") }),
 ]);
 
+/** Body of PATCH /api/orders/[id]/items/[itemId] — edit quantities. */
+export const itemEditSchema = z
+  .object({
+    quantityBoxes: z.coerce.number().int().min(0).max(10_000),
+    quantityItems: z.coerce.number().int().min(0).max(100_000),
+  })
+  .refine(
+    (line) => line.quantityBoxes > 0 || line.quantityItems > 0,
+    "Each line needs boxes or items"
+  );
+
 /**
  * Body of POST /api/orders/[id]/close — the cashier's action.
  * Allowed only when the order is production_complete and every

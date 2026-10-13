@@ -4,7 +4,7 @@
 // SECTION: Imports
 // ============================================================
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -45,6 +45,151 @@ import { Select } from "@/components/ui/select";
 import { LoadingArea } from "@/components/ui/spinner";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { CloseOrderDialog } from "@/components/cashier/close-order-dialog";
+
+// ============================================================
+// SECTION: Pending quantity editor
+// ------------------------------------------------------------
+// Two small typeable fields (κουτιά / τεμάχια) for lines the
+// production manager has not picked up yet. Commits on blur or
+// Enter; the PATCH is rejected server-side if production already
+// started (the UI then simply re-syncs from the poll).
+// ============================================================
+
+function PendingQtyEditor({
+  orderId,
+  item,
+  onSaved,
+}: {
+  orderId: string;
+  item: OrderItem;
+  onSaved: () => void;
+}) {
+  const t = useT();
+  const [boxes, setBoxes] = useState(item.quantityBoxes);
+  const [items, setItems] = useState(item.quantityItems);
+  const [saving, setSaving] = useState(false);
+
+  // Re-sync when the poll brings different numbers (another device
+  // edited, or production locked the line).
+  useEffect(() => {
+    setBoxes(item.quantityBoxes);
+    setItems(item.quantityItems);
+  }, [item.quantityBoxes, item.quantityItems]);
+
+  const commit = async () => {
+    if (
+      boxes === item.quantityBoxes &&
+      items === item.quantityItems
+    )
+      return;
+    if (boxes < 0 || items < 0 || (boxes === 0 && items === 0)) {
+      setBoxes(item.quantityBoxes);
+      setItems(item.quantityItems);
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.patch(
+        `/api/orders/${orderId}/items/${item.id}`,
+        { quantityBoxes: boxes, quantityItems: items }
+      );
+      onSaved();
+    } catch (error) {
+      showErrorToast(error, t("error.generic"));
+      setBoxes(item.quantityBoxes);
+      setItems(item.quantityItems);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = (value: number, setValue: (v: number) => void, label: string) => (
+    <input
+      type="number"
+      min="0"
+      inputMode="numeric"
+      value={value}
+      onChange={(event) => setValue(Math.max(0, Number(event.target.value) || 0))}
+      onBlur={commit}
+      onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+      aria-label={`${item.name} — ${label}`}
+      className="h-11 w-14 rounded-lg border border-border bg-surface text-center font-mono text-base font-bold text-on-surface focus:border-primary focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+    />
+  );
+
+  return (
+    <div className={cn("flex shrink-0 items-start gap-1", saving && "opacity-50")}>
+      {field(boxes, setBoxes, t("pos.boxes"))}
+      {field(items, setItems, t("pos.items"))}
+    </div>
+  );
+}
+
+// ============================================================
+// SECTION: Lifecycle stepper
+// ------------------------------------------------------------
+// The whole lifecycle in one glance: Υποβλήθηκε → Σε παραγωγή →
+// Παραγωγή ολοκληρώθηκε → Ολοκληρώθηκε. Done stages show a
+// check, the current stage pulses, future stages stay muted.
+// ============================================================
+
+function StatusStepper({ status }: { status: OrderDetailData["status"] }) {
+  const t = useT();
+  const locale = useLocale();
+  const currentIndex = ORDER_MAIN_FLOW.indexOf(status);
+
+  // Legacy orders (pre-Phase-2 stages) fall back to a plain badge.
+  if (currentIndex < 0) return null;
+
+  return (
+    <div className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-surface p-3">
+      {ORDER_MAIN_FLOW.map((stage, index) => {
+        const done = index < currentIndex;
+        const current = index === currentIndex;
+        return (
+          <div key={stage} className="flex min-w-0 flex-1 items-center gap-2">
+            {index > 0 && (
+              <span
+                aria-hidden
+                className={cn(
+                  "h-0.5 min-w-3 flex-1 rounded-full",
+                  done ? "bg-success" : "bg-border"
+                )}
+              />
+            )}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span
+                aria-hidden
+                className={cn(
+                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+                  done
+                    ? "bg-success text-white"
+                    : current
+                      ? "bg-primary text-on-primary"
+                      : "bg-surface-container-high text-on-surface-muted"
+                )}
+              >
+                {done ? "✓" : index + 1}
+              </span>
+              <span
+                className={cn(
+                  "hidden truncate text-xs font-semibold sm:block",
+                  current
+                    ? "text-primary"
+                    : done
+                      ? "text-on-surface"
+                      : "text-on-surface-muted"
+                )}
+              >
+                {STATUS_META[stage][locale]}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ============================================================
 // SECTION: Order detail screen
@@ -98,6 +243,7 @@ export function OrderDetailScreen({
   const canVoid = ["placed", "on_hold"].includes(order.status);
   const isTerminal = ["completed", "cancelled"].includes(order.status);
   const canAppend = ["placed", "in_production", "on_hold"].includes(order.status);
+  const canEditQuantities = canAppend;
 
   // ============================================================
   // SECTION: Mutations
@@ -200,6 +346,9 @@ export function OrderDetailScreen({
         )}
       </div>
 
+      {/* Lifecycle stepper — where this order stands, at a glance */}
+      <StatusStepper status={order.status} />
+
       {/* Customer contact card (Phase 2) */}
       {order.customer && (order.customer.address || order.customer.phone || order.customer.comments) && (
         <div className="mb-4 rounded-xl bg-surface-container-low px-4 py-3 text-sm">
@@ -252,12 +401,22 @@ export function OrderDetailScreen({
                 return (
                 <li key={item.id} className={cn("px-4 py-3", item.status === "voided" && "opacity-50")}>
                   <div className="flex items-start gap-3">
-                    <span
-                      aria-hidden
-                      className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-container text-base font-bold"
-                    >
-                      {item.quantityBoxes + item.quantityItems || item.quantity}
-                    </span>
+                    {/* Pending lines stay editable (κουτιά / τεμάχια typed
+                        by hand) until production picks them up */}
+                    {canEditQuantities && item.status === "active" && item.productionStatus === "pending" ? (
+                      <PendingQtyEditor
+                        orderId={orderId}
+                        item={item}
+                        onSaved={refresh}
+                      />
+                    ) : (
+                      <span
+                        aria-hidden
+                        className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-container text-base font-bold"
+                      >
+                        {item.quantityBoxes + item.quantityItems || item.quantity}
+                      </span>
+                    )}
 
                     <div className="min-w-0 flex-1">
                       <p className={cn("text-sm font-semibold", item.status === "voided" && "line-through")}>

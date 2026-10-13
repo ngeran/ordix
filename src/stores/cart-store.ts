@@ -30,6 +30,8 @@ export interface CartLine {
   productId: string;
   partNumber: string;
   name: string;
+  /** Pieces per sealed box — for the pcs readout in the tray. */
+  piecesPerBox: number;
   imageUrl?: string | null;
   quantityBoxes: number;
   quantityItems: number;
@@ -117,7 +119,6 @@ export const useCartStore = create<CartState>()(
                 ? { ...item, quantityBoxes: Math.max(0, boxes) }
                 : item
             )
-            .filter((item) => item.quantityBoxes > 0 || item.quantityItems > 0),
         })),
 
       setItems: (productId, items) =>
@@ -128,7 +129,6 @@ export const useCartStore = create<CartState>()(
                 ? { ...item, quantityItems: Math.max(0, items) }
                 : item
             )
-            .filter((item) => item.quantityBoxes > 0 || item.quantityItems > 0),
         })),
 
       setLinePrice: (productId, cents) =>

@@ -53,42 +53,42 @@
 /* ============================================================
    SECTION: Design tokens — dark theme (Tactile Warehouse OS)
    ------------------------------------------------------------
-   Midnight-slate canvas tuned for workshop tablets: rich tiers,
-   electric indigo primary, emerald/amber/rose accents, crisp
-   ghost outlines instead of muddy shadows.
+   Midnight-navy canvas per the order-terminal mockup: slate
+   tiers, indigo primary with white button text, emerald
+   confirmation, crisp slate-800 borders.
    ============================================================ */
 
 .dark {
-  --primary: #8083ff;
-  --primary-strong: #9497ff;
-  --on-primary: #0d0096;
-  --primary-soft: rgba(128, 131, 255, 0.16);
+  --primary: #6366f1;
+  --primary-strong: #818cf8;
+  --on-primary: #ffffff;
+  --primary-soft: rgba(99, 102, 241, 0.18);
 
-  --background: #0f131d;
-  --on-background: #dfe2f1;
+  --background: #0a0d14;
+  --on-background: #f1f5f9;
 
   --surface: #0f131d;
-  --surface-container-lowest: #0a0e18;
-  --surface-container-low: #171b26;
-  --surface-container: #1c1f2a;
-  --surface-container-high: #262a35;
-  --surface-container-highest: #313540;
-  --on-surface: #dfe2f1;
-  --on-surface-muted: #908fa0;
+  --surface-container-lowest: #0a0d14;
+  --surface-container-low: #0f131d;
+  --surface-container: #141824;
+  --surface-container-high: #1a202e;
+  --surface-container-highest: #232a3d;
+  --on-surface: #f1f5f9;
+  --on-surface-muted: #94a3b8;
 
-  --border: #464554;
-  --outline: #908fa0;
+  --border: #1e293b;
+  --outline: #64748b;
 
-  --success: #4edea3;
-  --on-success: #003824;
-  --success-soft: rgba(78, 222, 163, 0.14);
-  --warning: #ffb95f;
-  --warning-soft: rgba(255, 185, 95, 0.14);
-  --error: #ffb4ab;
-  --on-error: #690005;
-  --error-soft: rgba(255, 180, 171, 0.12);
-  --info: #c0c1ff;
-  --info-soft: rgba(192, 193, 255, 0.14);
+  --success: #10b981;
+  --on-success: #06281c;
+  --success-soft: rgba(16, 185, 129, 0.14);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --error: #f87171;
+  --on-error: #450a0a;
+  --error-soft: rgba(248, 113, 113, 0.12);
+  --info: #818cf8;
+  --info-soft: rgba(129, 140, 248, 0.14);
 }
 
 /* ============================================================
@@ -131,7 +131,7 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
 
-  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
   --shadow-card: 0 1px 3px rgb(9 12 20 / 0.08), 0 1px 2px rgb(9 12 20 / 0.04);
   --shadow-pop: 0 8px 30px rgb(9 12 20 / 0.16);

@@ -5,40 +5,41 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { Boxes, Package, Search } from "lucide-react";
+import { Boxes, Package, Plus, Search } from "lucide-react";
 import type { Category } from "@/db/schema";
 import type { ProductWithCategory } from "@/types";
+import { useCartStore } from "@/stores/cart-store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 
 // ============================================================
 // SECTION: Product grid (Factory Parts Ledger)
 // ------------------------------------------------------------
-// Mockup-faithful cards: SKU pill + bin badge on top, bold name,
-// one-line description, and a footer showing the sealed-box size
-// ("Box = 25 pcs") with a Select button. Filtering (search +
-// category) happens client-side so counts stay instant.
+// COMPACT cards per the order-terminal mockup: part-code pill,
+// short name, "Box = N pcs" footer and a + Add to Tray button.
+// Quantities (boxes / loose pieces — typed OR steppers) live in
+// the Order Tray, not on the cards.
 // ============================================================
 
 interface ProductGridProps {
   products: ProductWithCategory[] | null;
   categories: Category[];
-  activeProductId?: string;
   isStale: boolean;
-  /** Tapping a card (or Select) loads it into the calculator. */
-  onSelect: (product: ProductWithCategory) => void;
+  /** Tapping a card (or Add) pushes one box onto the tray. */
+  onAdd: (product: ProductWithCategory) => void;
 }
 
 export function ProductGrid({
   products,
   categories,
-  activeProductId,
   isStale,
-  onSelect,
+  onAdd,
 }: ProductGridProps) {
   const t = useT();
+  const items = useCartStore((state) => state.items);
 
   // -- Client-side filtering state (catalog is small: ~dozens) --
   const [search, setSearch] = useState("");
@@ -71,7 +72,7 @@ export function ProductGrid({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* ============================================================
-          SECTION: Scan-style search header
+          SECTION: Search header
           ============================================================ */}
       <div className="border-b border-border px-4 pb-3 pt-4">
         <div className="relative">
@@ -84,7 +85,7 @@ export function ProductGrid({
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t("pos.searchPlaceholder")}
             aria-label={t("common.search")}
-            className="pl-11 font-mono"
+            className="pl-11 font-medium"
             type="search"
           />
         </div>
@@ -121,7 +122,7 @@ export function ProductGrid({
       </div>
 
       {/* ============================================================
-          SECTION: Part cards
+          SECTION: Compact part cards
           ============================================================ */}
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
         {products === null ? null : filtered.length === 0 ? (
@@ -131,89 +132,63 @@ export function ProductGrid({
             hint={t("pos.searchPlaceholder")}
           />
         ) : (
-          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {filtered.map((product) => (
-              <PartCard
-                key={product.id}
-                product={product}
-                active={product.id === activeProductId}
-                onSelect={onSelect}
-              />
-            ))}
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            {filtered.map((product) => {
+              const queued =
+                items.find((item) => item.productId === product.id)
+                  ?.quantityBoxes ?? 0;
+              return (
+                <li key={product.id}>
+                  <article
+                    className={cn(
+                      "flex h-full flex-col justify-between gap-3 rounded-xl border bg-surface p-4 transition-all",
+                      queued > 0
+                        ? "border-primary/70"
+                        : "border-border hover:border-primary/40"
+                    )}
+                  >
+                    <div>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="rounded border border-primary/20 bg-primary-soft px-2 py-0.5 font-mono text-xs font-semibold text-primary">
+                          {product.partNumber}
+                        </span>
+                        {queued > 0 && (
+                          <span className="font-mono text-xs text-on-surface-muted">
+                            ×{queued}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="text-base font-bold leading-snug tracking-tight text-on-surface">
+                        {product.name}
+                      </h3>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+                      {product.itemsPerBox ? (
+                        <span className="flex items-center gap-1.5 font-mono text-xs text-on-surface-muted">
+                          <Boxes className="h-4 w-4" aria-hidden />
+                          {t("pos.boxEquals", { count: product.itemsPerBox })}
+                        </span>
+                      ) : (
+                        <span />
+                      )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onAdd(product)}
+                      >
+                        <Plus className="h-4 w-4" />
+                        {t("pos.addToTray")}
+                      </Button>
+                    </div>
+                  </article>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
     </div>
-  );
-}
-
-// ============================================================
-// SECTION: Part card (mockup style — no images/prices/stock)
-// ============================================================
-
-function PartCard({
-  product,
-  active,
-  onSelect,
-}: {
-  product: ProductWithCategory;
-  active: boolean;
-  onSelect: (product: ProductWithCategory) => void;
-}) {
-  const t = useT();
-
-  return (
-    <button
-      onClick={() => onSelect(product)}
-      className={cn(
-        "flex h-full flex-col justify-between gap-3 rounded-xl border-2 bg-surface-container-low p-4 text-left shadow-card transition-all duration-150 hover:bg-surface-container",
-        active
-          ? "border-primary/80"
-          : "border-border hover:border-primary/40"
-      )}
-    >
-      <div className="flex flex-col gap-2">
-        <div className="flex items-start justify-between gap-2">
-          <span className="rounded border border-border bg-surface-container-high px-2.5 py-1 font-mono text-xs font-bold text-primary">
-            {product.partNumber}
-          </span>
-        </div>
-        <div>
-          <h3 className="text-base font-extrabold leading-snug text-on-surface">
-            {product.name}
-          </h3>
-          {product.description && (
-            <p className="mt-0.5 line-clamp-2 text-sm text-on-surface-muted">
-              {product.description}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between border-t border-border pt-2">
-        {product.itemsPerBox ? (
-          <span className="flex items-center gap-2 text-sm font-bold text-on-surface">
-            <Boxes className="h-5 w-5 text-success" aria-hidden />
-            {t("pos.boxEquals", { count: product.itemsPerBox })}
-          </span>
-        ) : (
-          <span className="flex items-center gap-2 text-sm font-bold text-on-surface-muted">
-            <Package className="h-5 w-5" aria-hidden />
-            {t("pos.looseOnly")}
-          </span>
-        )}
-        <span
-          className={cn(
-            "rounded-lg px-3 py-1.5 text-sm font-bold transition-all",
-            active
-              ? "bg-primary text-on-primary"
-              : "bg-surface-container-high text-on-surface hover:bg-primary hover:text-on-primary"
-          )}
-        >
-          {t("pos.select")}
-        </span>
-      </div>
-    </button>
   );
 }
 
@@ -238,16 +213,16 @@ function CategoryPill({
       aria-selected={selected}
       onClick={onClick}
       className={cn(
-        "flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 font-semibold transition-all",
+        "flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-4 text-sm transition-all",
         selected
-          ? "bg-primary text-on-primary shadow"
-          : "border border-border bg-surface-container text-on-surface-muted hover:bg-surface-container-high hover:text-on-surface"
+          ? "bg-primary font-semibold text-on-primary shadow-md"
+          : "border border-border bg-surface text-on-surface-muted hover:bg-surface-container-high hover:text-on-surface"
       )}
     >
       <span>{label}</span>
       <span
         className={cn(
-          "rounded-full px-2 py-0.5 font-mono text-xs",
+          "rounded-full px-1.5 py-0.5 font-mono text-[11px]",
           selected ? "bg-on-primary/20 text-on-primary" : "text-on-surface-muted"
         )}
       >
