@@ -9,7 +9,9 @@ import {
   describeOperation,
   enqueueOperation,
   isNetworkFailure,
+  isQueueable,
 } from "@/lib/offline-outbox";
+import { translate } from "@/lib/i18n";
 import { toast } from "@/stores/toast-store";
 
 // ============================================================
@@ -72,19 +74,25 @@ async function request<T>(
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   } catch (error) {
-    // Network-level failure on a mutating request → queue for
-    // replay and tell the caller it's safely stored locally.
+    // Network-level failure on a mutating request:
+    //   - queueable (order creation / round append) → IndexedDB
+    //     outbox + "saved offline" confirmation to the caller
+    //   - anything else (cancellations, catalog edits) → a clear
+    //     needs-connection error; they must not silently replay
     if (method !== "GET" && !(error instanceof ApiError) && isNetworkFailure(error)) {
-      const label = describeOperation(method, url, json);
-      await enqueueOperation({
-        id: crypto.randomUUID(),
-        url,
-        method: method as "POST" | "PATCH" | "DELETE",
-        body: json,
-        label,
-        createdAt: Date.now(),
-      });
-      throw new OfflineQueuedError(label);
+      if (isQueueable(method, url)) {
+        const label = describeOperation(url);
+        await enqueueOperation({
+          id: crypto.randomUUID(),
+          url,
+          method: method as "POST" | "PATCH" | "DELETE",
+          body: json,
+          label,
+          createdAt: Date.now(),
+        });
+        throw new OfflineQueuedError(label);
+      }
+      throw new ApiError(translate("offline.needsConnection"), 0);
     }
     throw error;
   }

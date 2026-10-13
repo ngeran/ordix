@@ -27,7 +27,13 @@ export type OrderSummary = Order & {
   itemCount: number;
   /** Total quantity of units across active items. */
   totalUnits: number;
+  /** Active items whose production is complete. */
+  producedCount: number;
+  /** Active items currently in production. */
+  inProductionCount: number;
   createdByName: string | null;
+  /** Active items, attached only when the API is called with include=items. */
+  items?: OrderItem[];
 };
 
 /** Customer contact block shown on the order detail page. */

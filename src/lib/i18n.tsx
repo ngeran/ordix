@@ -341,6 +341,8 @@ const en = {
   "offline.offline": "Offline",
   "offline.synced": "Synced: {label}",
   "offline.syncFailed": "Sync failed: {label}",
+  "offline.needsConnection":
+    "This action needs a connection — it will not be queued offline",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -664,6 +666,8 @@ const el: Record<MessageKey, string> = {
   "offline.offline": "Εκτός σύνδεσης",
   "offline.synced": "Συγχρονίστηκε: {label}",
   "offline.syncFailed": "Αποτυχία συγχρονισμού: {label}",
+  "offline.needsConnection":
+    "Αυτή η ενέργεια χρειάζεται σύνδεση — δεν θα υπαχθεί σε αναμονή",
 };
 
 const dictionaries: Record<Locale, Record<MessageKey, string>> = { en, el };

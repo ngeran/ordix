@@ -7,17 +7,25 @@ import type { OrderStatus } from "@/db/schema";
 // ============================================================
 // SECTION: Order lifecycle definition
 // ------------------------------------------------------------
-// The main flow is strictly linear — one step at a time — so a
-// packed box can never be marked "preparing" by a stray tap.
-// `on_hold` and `cancelled` branch off any active stage.
+// Single source of truth for the build-to-order state machine.
+// Every transition is validated server-side; the UI derives its
+// buttons from the same map, so the two can never disagree.
 //
-// NOTE: production_complete → completed is NOT a legal
-// transition here. Completion happens ONLY through the cashier's
-// dedicated close endpoint (POST /api/orders/[id]/close) — the
-// production manager can never close or complete an order.
+//   Order Entry ──► placed (Submitted / Production Queue)
+//   placed ──► in_production     (auto on first item sent)
+//   in_production ──► production_complete
+//                                (AUTO when every active item is
+//                                 completed; manual fallback only
+//                                 if all items are completed)
+//   production_complete ──► completed
+//                                (ONLY via POST /close by the
+//                                 originating department)
+//
+// Item production states: pending → selected → in_production →
+// completed (`selected` = picked for the next batch, not started).
 // ============================================================
 
-/** The build-to-order happy path (Phase 2). */
+/** The build-to-order happy path (also the detail-page stepper). */
 export const ORDER_MAIN_FLOW: readonly OrderStatus[] = [
   "placed",
   "in_production",
@@ -31,6 +39,32 @@ export const ACTIVE_ORDER_STATUSES: readonly OrderStatus[] = [
   "in_production",
   "production_complete",
   "on_hold",
+] as const;
+
+/**
+ * Orders in these stages still accept line edits, appended
+ * rounds and voids — production has not locked the items yet.
+ */
+export const ITEM_EDITABLE_ORDER_STATUSES: readonly OrderStatus[] = [
+  "placed",
+  "in_production",
+  "on_hold",
+] as const;
+
+/** Stages where production actions (send / complete) are legal. */
+export const PRODUCIBLE_ORDER_STATUSES: readonly OrderStatus[] = [
+  "placed",
+  "in_production",
+] as const;
+
+/**
+ * Stages from which the department closure endpoint accepts a
+ * close. `in_production` closes ONLY when every active item is
+ * already produced (edge case — see canClose helper users).
+ */
+export const CLOSABLE_ORDER_STATUSES: readonly OrderStatus[] = [
+  "production_complete",
+  "in_production",
 ] as const;
 
 /** Pre-Phase-2 stages — kept only so legacy rows render correctly. */
@@ -53,10 +87,10 @@ const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   // -- Build-to-order chain --
   placed: ["in_production", "on_hold", "cancelled"],
   in_production: ["production_complete", "on_hold", "cancelled"],
-  // No "completed": only the cashier's close endpoint completes.
+  // No "completed": the department closure endpoint is the only
+  // path to completed (see CLOSABLE_ORDER_STATUSES).
   production_complete: ["in_production", "cancelled"],
-  // Held orders resume to any not-yet-reached stage, or cancel.
-  on_hold: ["placed", "in_production", "production_complete", "cancelled"],
+  on_hold: ["placed", "in_production", "cancelled"],
   // -- Legacy chains (old rows only — new orders never land here) --
   preparing: ["prepared", "on_hold", "cancelled"],
   prepared: ["boxed", "on_hold", "cancelled"],
@@ -67,8 +101,9 @@ const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   cancelled: [],
 };
 
+
 // ============================================================
-// SECTION: Pure helpers (used by API validation AND the UI)
+// SECTION: Generic helpers
 // ============================================================
 
 /** True when moving `from` → `to` is a legal transition. */
@@ -95,7 +130,54 @@ export function mainFlowIndex(status: OrderStatus): number {
 }
 
 // ============================================================
+// SECTION: Lifecycle predicate helpers
+// ------------------------------------------------------------
+// Shared by the API routes and the screens so "can I do this?"
+// is answered in exactly one place.
+// ============================================================
+
+/** Order stages that accept appended rounds. */
+export function canAppendItems(status: OrderStatus): boolean {
+  return ITEM_EDITABLE_ORDER_STATUSES.includes(status);
+}
+
+/** Order stages that accept line edits / voids / quantity changes. */
+export function canChangeItem(status: OrderStatus): boolean {
+  return ITEM_EDITABLE_ORDER_STATUSES.includes(status);
+}
+
+/** Order stages where an item may be sent to production. */
+export function canSendItem(status: OrderStatus): boolean {
+  return PRODUCIBLE_ORDER_STATUSES.includes(status);
+}
+
+/** Order stages where an item may be marked produced. */
+export function canCompleteItem(status: OrderStatus): boolean {
+  return PRODUCIBLE_ORDER_STATUSES.includes(status);
+}
+
+/**
+ * Production completion rule: every ACTIVE item is `completed`.
+ * Voided lines are ignored; an order whose lines were ALL voided
+ * counts as produced (vacuously — nothing left to make).
+ */
+export function allItemsProduced(
+  items: Array<{ status: string; productionStatus: string }>
+): boolean {
+  const active = items.filter((item) => item.status === "active");
+  return active.every((item) => item.productionStatus === "completed");
+}
+
+/** Stage check for the department closure endpoint. */
+export function isClosableStatus(status: OrderStatus): boolean {
+  return CLOSABLE_ORDER_STATUSES.includes(status);
+}
+
+// ============================================================
 // SECTION: Display metadata — labels (bilingual) & colors
+// ------------------------------------------------------------
+// DB values stay stable; the UI words below were approved by the
+// customer (see the relabel table in the README).
 // ============================================================
 
 interface StatusMeta {
@@ -109,7 +191,7 @@ interface StatusMeta {
 
 export const STATUS_META: Record<OrderStatus, StatusMeta> = {
   placed: {
-    en: "Placed",
+    en: "Submitted",
     el: "Υποβλήθηκε",
     badgeClass: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
     accentClass: "bg-sky-500",
@@ -122,15 +204,15 @@ export const STATUS_META: Record<OrderStatus, StatusMeta> = {
     accentClass: "bg-amber-500",
   },
   production_complete: {
-    en: "Production complete",
-    el: "Παραγωγή ολοκληρώθηκε",
+    en: "Complete · returned",
+    el: "Έτοιμη · επιστράφηκε",
     badgeClass:
       "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
     accentClass: "bg-violet-500",
   },
   completed: {
-    en: "Completed",
-    el: "Ολοκληρώθηκε",
+    en: "Closed",
+    el: "Κλειστή",
     badgeClass:
       "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
     accentClass: "bg-emerald-500",

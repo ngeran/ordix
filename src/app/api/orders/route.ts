@@ -7,7 +7,12 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { customers, orderEvents, orderItems, orders, products } from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
-import { orderScopeSchema, parseJsonBody, placeOrderSchema } from "@/lib/validation";
+import {
+  orderListQuerySchema,
+  parseJsonBody,
+  parseSearchParams,
+  placeOrderSchema,
+} from "@/lib/validation";
 import { allocateDailyNumber, getOrderDetail, listOrders } from "@/lib/order-service";
 import { getBusinessDate } from "@/lib/utils";
 
@@ -26,14 +31,16 @@ export async function GET(request: Request) {
     const db = await getDb();
     const { searchParams } = new URL(request.url);
 
-    const scope = orderScopeSchema.parse(searchParams.get("scope") ?? "all");
-    const status = searchParams.get("status");
-    const date = searchParams.get("date");
+    const query = parseSearchParams(searchParams, orderListQuerySchema);
 
     const result = await listOrders(db, {
-      scope,
-      status: status ? (status as never) : undefined,
-      businessDate: date ?? undefined,
+      scope: query.scope,
+      status: query.status,
+      businessDate: query.date,
+      from: query.from,
+      to: query.to,
+      search: query.q,
+      includeItems: query.include === "items",
     });
 
     return NextResponse.json(result);

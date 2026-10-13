@@ -162,30 +162,22 @@ export class OfflineQueuedError extends Error {
 // SECTION: Friendly labels for sync toasts
 // ============================================================
 
-export function describeOperation(
-  method: string,
-  url: string,
-  body: unknown
-): string {
+/**
+ * Only these two mutations are queued offline (place order /
+ * append round). Everything else needs the server live and
+ * surfaces a needs-connection error instead.
+ */
+export function isQueueable(method: string, url: string): boolean {
+  if (method !== "POST") return false;
   const path = url.split("?")[0];
-  const payload = (body ?? {}) as Record<string, unknown>;
+  return path === "/api/orders" || /^\/api\/orders\/[^/]+\/items$/.test(path);
+}
 
-  if (method === "POST" && path === "/api/orders") {
-    return typeof payload.customerName === "string" && payload.customerName
-      ? `Order · ${payload.customerName}`
-      : "New order";
-  }
+/** Short human label shown in sync toasts. */
+export function describeOperation(url: string): string {
+  const path = url.split("?")[0];
+  if (path === "/api/orders") return "New order";
   if (path.endsWith("/items")) return "Add round";
-  if (path.endsWith("/tracking")) return "Courier info";
-  if (path.endsWith("/status")) {
-    return typeof payload.status === "string" ? `Order → ${payload.status}` : "Status update";
-  }
-  if (path.includes("/items/") && payload.action === "void") return "Void item";
-  if (path.includes("/items/")) return "Packing update";
-  if (path === "/api/stock/adjust") return "Stock adjustment";
-  if (path === "/api/settings") return "Settings";
-  if (path.startsWith("/api/products")) return method === "DELETE" ? "Delete product" : "Product update";
-  if (path.startsWith("/api/categories")) return "Category update";
   return "Change";
 }
 

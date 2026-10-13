@@ -3,23 +3,27 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
-import { asBatch, getDb } from "@/db";
-import { orderEvents, orderItems, orders } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import { orderEvents, orders } from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
 import { closeOrderSchema, parseJsonBody } from "@/lib/validation";
+import {
+  allItemsProduced,
+  isClosableStatus,
+} from "@/lib/order-status";
 import { getActiveItems, getOrder, getOrderDetail } from "@/lib/order-service";
 
 // ============================================================
-// SECTION: POST /api/orders/[id]/close — the cashier's action
+// SECTION: POST /api/orders/[id]/close — department closure
 // ------------------------------------------------------------
-// Closes a finished build-to-order: status → completed
-// (Ολοκληρώθηκε), paidAt stamped. Any items the production
-// manager didn't individually click through are auto-completed
-// here (stamped with the closer, noted on the timeline) — the
-// cashier can never be blocked by leftover production states.
-// Accepts orders in production_complete or in_production.
+// The ONLY path to `completed` (Ολοκληρώθηκε). Rules:
+//   - order must be closable: production_complete, or
+//     in_production with every active item produced (edge case)
+//   - the close is a conditional UPDATE … RETURNING: if another
+//     request changed the status first, 0 rows change → 409
+//   - legacy payment columns (paidAt etc.) are NEVER written
+//   - timeline note: "Closed by department"
 // ============================================================
 
 export async function POST(
@@ -33,104 +37,63 @@ export async function POST(
 
   try {
     const db = await getDb();
-    const input = await parseJsonBody(request, closeOrderSchema);
+    await parseJsonBody(request, closeOrderSchema);
 
     const order = await getOrder(db, orderId);
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
-    // Acceptable starting points: production_complete (normal) or
-    // in_production (the manager skipped the explicit hand-off —
-    // closing implies production is done).
-    if (
-      order.status !== "production_complete" &&
-      order.status !== "in_production"
-    ) {
+    if (!isClosableStatus(order.status)) {
       return NextResponse.json(
-        { error: "Only orders with completed production can be closed" },
+        {
+          error:
+            "Only returned orders (production complete) can be closed by the department",
+        },
         { status: 409 }
       );
     }
 
-    // -- Any items the manager didn't individually click through
-    // are auto-completed at close (stamped with the closer) — the
-    // cashier can NEVER be blocked by leftover production states. --
+    // Edge case: closing while still in_production requires every
+    // active item to be produced already.
+    if (order.status === "in_production") {
+      const items = await getActiveItems(db, orderId);
+      if (!allItemsProduced(items)) {
+        return NextResponse.json(
+          { error: "Not every item has been produced yet" },
+          { status: 409 }
+        );
+      }
+    }
+
     const now = new Date();
-    // Raw sql template: D1 needs epoch seconds, not a Date object.
-    const nowEpoch = Math.floor(now.getTime() / 1000);
-    const activeItems = await getActiveItems(db, orderId);
-    const unfinished = activeItems.filter(
-      (item) => item.productionStatus !== "completed"
-    );
+    // Conditional close: only fires while the status is unchanged,
+    // so two concurrent closes produce exactly one 200 + one 409.
+    const closed = await db
+      .update(orders)
+      .set({
+        status: "completed",
+        completedAt: now,
+        closedById: user.id,
+        updatedAt: now,
+      })
+      .where(and(eq(orders.id, orderId), eq(orders.status, order.status)))
+      .returning({ id: orders.id });
 
-    const statements: BatchItem<"sqlite">[] = [
-      db
-        .update(orders)
-        .set({
-          status: "completed",
-          completedAt: now,
-          paidAt: now,
-          closedById: user.id,
-          updatedAt: now,
-        })
-        .where(eq(orders.id, orderId)),
-    ];
-
-    if (unfinished.length > 0) {
-      statements.push(
-        db
-          .update(orderItems)
-          .set({
-            productionStatus: "completed",
-            sentToProductionAt: sql`coalesce(${orderItems.sentToProductionAt}, ${nowEpoch})`,
-            sentToProductionById: sql`coalesce(${orderItems.sentToProductionById}, ${user.id})`,
-            productionCompletedAt: now,
-            productionCompletedById: user.id,
-          })
-          .where(
-            and(
-              eq(orderItems.orderId, orderId),
-              eq(orderItems.status, "active"),
-              eq(orderItems.productionStatus, "pending")
-            )
-          ),
-        db
-          .update(orderItems)
-          .set({
-            productionStatus: "completed",
-            productionCompletedAt: now,
-            productionCompletedById: user.id,
-          })
-          .where(
-            and(
-              eq(orderItems.orderId, orderId),
-              eq(orderItems.status, "active"),
-              eq(orderItems.productionStatus, "in_production")
-            )
-          ),
-        db.insert(orderEvents).values({
-          id: crypto.randomUUID(),
-          orderId,
-          fromStatus: order.status,
-          toStatus: order.status,
-          userId: user.id,
-          note: `${unfinished.length} item(s) auto-completed at close`,
-        })
+    if (closed.length === 0) {
+      return NextResponse.json(
+        { error: "The order changed meanwhile — refresh and try again" },
+        { status: 409 }
       );
     }
 
-    statements.push(
-      db.insert(orderEvents).values({
-        id: crypto.randomUUID(),
-        orderId,
-        fromStatus: order.status,
-        toStatus: "completed",
-        userId: user.id,
-        note: `Order completed — closed by cashier`,
-      })
-    );
-
-    await db.batch(asBatch(statements));
+    await db.insert(orderEvents).values({
+      id: crypto.randomUUID(),
+      orderId,
+      fromStatus: order.status,
+      toStatus: "completed",
+      userId: user.id,
+      note: "Closed by department",
+    });
 
     const detail = await getOrderDetail(db, orderId);
     return NextResponse.json(detail);

@@ -2,7 +2,7 @@
 // SECTION: Imports
 // ============================================================
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import {
   customers,
@@ -15,7 +15,11 @@ import {
   type OrderItem,
   type OrderStatus,
 } from "@/db/schema";
-import { ACTIVE_ORDER_STATUSES, formatOrderNumber } from "@/lib/order-status";
+import {
+  ACTIVE_ORDER_STATUSES,
+  allItemsProduced,
+  formatOrderNumber,
+} from "@/lib/order-status";
 import { getBusinessDate } from "@/lib/utils";
 import type { OrderDetail, OrderSummary } from "@/types";
 
@@ -106,20 +110,40 @@ export async function getOrder(db: Database, orderId: string): Promise<Order | n
 }
 
 /**
+ * Escapes LIKE wildcards in user input so a search for "100%"
+ * doesn't turn into a full-table match.
+ */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+export interface ListOrdersOptions {
+  scope: "active" | "history" | "all";
+  status?: OrderStatus;
+  businessDate?: string;
+  /** Inclusive lower bound on placedAt (YYYY-MM-DD or full ISO). */
+  from?: string;
+  /** Inclusive upper bound on placedAt. */
+  to?: string;
+  /** Matches order number, customer name or part number. */
+  search?: string;
+  /** Attach the active items (one extra query — no N+1). */
+  includeItems?: boolean;
+  limit?: number;
+}
+
+/**
  * Board/history list: orders with item aggregates, the creator's
- * name and the customer name (Phase 2 customer record preferred,
- * legacy free-text as fallback).
+ * name and the customer name (customer record preferred, legacy
+ * free-text as fallback). Production aggregates
+ * (produced/in-production counts) drive the progress bars.
  */
 export async function listOrders(
   db: Database,
-  options: {
-    scope: "active" | "history" | "all";
-    status?: OrderStatus;
-    businessDate?: string;
-    limit?: number;
-  }
+  options: ListOrdersOptions
 ): Promise<OrderSummary[]> {
-  const { scope, status, businessDate, limit = 200 } = options;
+  const { scope, status, businessDate, from, to, search, limit = 200 } =
+    options;
 
   // -- Base filter by scope --
   const activeStatuses = Array.from(ACTIVE_ORDER_STATUSES);
@@ -132,7 +156,26 @@ export async function listOrders(
 
   // -- Optional refinements --
   const statusClause = status ? eq(orders.status, status) : undefined;
-  const dateClause = businessDate ? eq(orders.businessDate, businessDate) : undefined;
+  const dateClause = businessDate
+    ? eq(orders.businessDate, businessDate)
+    : undefined;
+  // Date range on placedAt: `to` is inclusive, so it runs to the
+  // end of that day (or of the ISO timestamp provided).
+  const fromClause = from
+    ? sql`${orders.placedAt} >= ${unixEpoch(from)}`
+    : undefined;
+  const toClause = to
+    ? sql`${orders.placedAt} <= ${unixEpoch(`${to.slice(0, 10)}T23:59:59Z`)}`
+    : undefined;
+
+  // -- Search across order number + customer name (escaped LIKE) --
+  const q = search?.trim().toLowerCase();
+  const searchClause = q
+    ? or(
+        sql`lower(${orders.orderNumber}) like ${`%${escapeLike(q)}%`} escape '\\'`,
+        sql`lower(coalesce(${customers.name}, ${orders.customerName})) like ${`%${escapeLike(q)}%`} escape '\\'`
+      )
+    : undefined;
 
   const rows = await db
     .select({
@@ -143,7 +186,9 @@ export async function listOrders(
     .from(orders)
     .leftJoin(users, eq(users.id, orders.createdById))
     .leftJoin(customers, eq(customers.id, orders.customerId))
-    .where(and(scopeClause, statusClause, dateClause))
+    .where(
+      and(scopeClause, statusClause, dateClause, fromClause, toClause, searchClause)
+    )
     .orderBy(scope === "active" ? orders.placedAt : desc(orders.placedAt))
     .limit(limit);
 
@@ -159,6 +204,8 @@ export async function listOrders(
       orderId: orderItems.orderId,
       itemCount: sql<number>`count(*)`,
       totalUnits: sql<number>`coalesce(sum(${orderItems.quantity}), 0)`,
+      producedCount: sql<number>`coalesce(sum(case when ${orderItems.productionStatus} = 'completed' then 1 else 0 end), 0)`,
+      inProductionCount: sql<number>`coalesce(sum(case when ${orderItems.productionStatus} = 'in_production' then 1 else 0 end), 0)`,
     })
     .from(orderItems)
     .where(
@@ -171,13 +218,91 @@ export async function listOrders(
 
   const aggByOrder = new Map(aggregates.map((agg) => [agg.orderId, agg]));
 
-  return rows.map((row) => ({
+  const result: OrderSummary[] = rows.map((row) => ({
     ...row.order,
     customerName: row.customerRecordName ?? row.order.customerName ?? null,
     createdByName: row.createdByName ?? null,
     itemCount: Number(aggByOrder.get(row.order.id)?.itemCount ?? 0),
     totalUnits: Number(aggByOrder.get(row.order.id)?.totalUnits ?? 0),
+    producedCount: Number(aggByOrder.get(row.order.id)?.producedCount ?? 0),
+    inProductionCount: Number(
+      aggByOrder.get(row.order.id)?.inProductionCount ?? 0
+    ),
   }));
+
+  // -- Active items attached for screens that render them
+  // (production board, cashier) — a single extra query, no N+1. --
+  if (options.includeItems && orderIds.length > 0) {
+    const items = await db
+      .select()
+      .from(orderItems)
+      .where(
+        and(
+          inArray(orderItems.orderId, orderIds),
+          eq(orderItems.status, "active")
+        )
+      );
+    const itemsByOrder = new Map<string, OrderItem[]>();
+    for (const item of items) {
+      const list = itemsByOrder.get(item.orderId) ?? [];
+      list.push(item);
+      itemsByOrder.set(item.orderId, list);
+    }
+    for (const entry of result) {
+      entry.items = itemsByOrder.get(entry.id) ?? [];
+    }
+  }
+
+  return result;
+}
+
+/** "YYYY-MM-DD[THH:MM:SSZ]" → unix epoch seconds for the integer columns. */
+function unixEpoch(value: string): number {
+  return Math.floor(new Date(value).getTime() / 1000);
+}
+
+/**
+ * Auto-return: flips an in_production order to production_complete
+ * when its last active item is produced. Race-safe — the
+ * conditional UPDATE only fires while the status is still
+ * in_production; the event is written only when a row changed.
+ * Returns the new status so callers can toast/branch.
+ */
+export async function returnOrderIfAllProduced(
+  db: Database,
+  orderId: string,
+  userId: string
+): Promise<OrderStatus> {
+  const items = await db
+    .select({
+      status: orderItems.status,
+      productionStatus: orderItems.productionStatus,
+    })
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId));
+
+  if (!allItemsProduced(items)) return "in_production";
+
+  const returned = await db
+    .update(orders)
+    .set({ status: "production_complete", updatedAt: new Date() })
+    .where(
+      and(eq(orders.id, orderId), eq(orders.status, "in_production"))
+    )
+    .returning({ id: orders.id });
+
+  if (returned.length > 0) {
+    await db.insert(orderEvents).values({
+      id: crypto.randomUUID(),
+      orderId,
+      fromStatus: "in_production",
+      toStatus: "production_complete",
+      userId,
+      note: "All items produced — auto-returned to the department",
+    });
+    return "production_complete";
+  }
+  return "in_production";
 }
 
 /** Full detail for the order page: items + timeline with actor names. */

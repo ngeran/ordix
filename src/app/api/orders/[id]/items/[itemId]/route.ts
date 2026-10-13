@@ -13,7 +13,13 @@ import {
   itemEditSchema,
   parseJsonBody,
 } from "@/lib/validation";
-import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-service";
+import {
+  canChangeItem,
+  canSendItem,
+  canCompleteItem,
+  allItemsProduced,
+} from "@/lib/order-status";
+import { getOrder, getOrderDetail, recalculateOrderTotal, returnOrderIfAllProduced } from "@/lib/order-service";
 
 // ============================================================
 // SECTION: Item actions — production clicks + edits
@@ -25,8 +31,6 @@ import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-ser
 // in_production so the boards stay truthful without a second tap.
 // Build-to-order: voids never touch stock — nothing was deducted.
 // ============================================================
-
-const VOIDABLE_STATUSES = ["placed", "in_production", "on_hold"];
 
 // ============================================================
 // SECTION: PATCH — edit quantities of a pending line
@@ -53,7 +57,7 @@ export async function PATCH(
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
-    if (!VOIDABLE_STATUSES.includes(order.status)) {
+    if (!canChangeItem(order.status)) {
       return NextResponse.json(
         { error: `Items cannot be edited while the order is ${order.status}` },
         { status: 409 }
@@ -135,9 +139,9 @@ export async function POST(
     // SECTION: Send to production (pending → in_production)
     // ============================================================
     if (input.action === "send_to_production") {
-      if (item.status !== "active" || item.productionStatus !== "pending") {
+      if (!canSendItem(order.status)) {
         return NextResponse.json(
-          { error: "Item is not waiting for production" },
+          { error: `Items cannot be sent to production while the order is ${order.status}` },
           { status: 409 }
         );
       }
@@ -193,9 +197,9 @@ export async function POST(
     // SECTION: Complete production (in_production → completed)
     // ============================================================
     if (input.action === "complete_production") {
-      if (item.productionStatus !== "in_production") {
+      if (!canCompleteItem(order.status)) {
         return NextResponse.json(
-          { error: "Item is not in production" },
+          { error: `Items cannot be completed while the order is ${order.status}` },
           { status: 409 }
         );
       }
@@ -220,6 +224,8 @@ export async function POST(
           }),
         ])
       );
+      // Every item produced → hand the order back to the department.
+      await returnOrderIfAllProduced(db, orderId, user.id);
       const detail = await getOrderDetail(db, orderId);
       return NextResponse.json(detail);
     }
@@ -234,7 +240,7 @@ export async function POST(
           { status: 409 }
         );
       }
-      if (!VOIDABLE_STATUSES.includes(order.status)) {
+      if (!canChangeItem(order.status)) {
         return NextResponse.json(
           { error: `Items cannot be voided while the order is ${order.status}` },
           { status: 409 }

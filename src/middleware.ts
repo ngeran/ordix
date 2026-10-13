@@ -32,6 +32,16 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
+  // Unauthenticated API calls get a machine-readable 401 — a
+  // redirect to HTML breaks fetch()-based clients (offline
+  // outbox, polling hook treats it as opaque success).
+  if (pathname.startsWith("/api/")) {
+    if (!req.auth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
   if (!req.auth) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("callbackUrl", pathname);

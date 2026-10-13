@@ -172,8 +172,39 @@ export const trackingSchema = z
     "Courier name or tracking number is required"
   );
 
-/** Query param for GET /api/orders — narrows the board/history split. */
-export const orderScopeSchema = z.enum(["active", "history", "all"]).default("all");
+/** Query params for GET /api/orders — board/dashboard filters. */
+export const orderListQuerySchema = z.object({
+  scope: z.enum(["active", "history", "all"]).default("all"),
+  status: z.enum(ORDER_STATUSES).optional(),
+  /** Business day (YYYY-MM-DD), takes precedence over from/to. */
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Inclusive placed-from date (YYYY-MM-DD). */
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Inclusive placed-to date (YYYY-MM-DD). */
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Free-text search: order number / customer name. */
+  q: z.string().trim().max(100).optional(),
+  /** Attach active items for screens that render them. */
+  include: z.literal("items").optional(),
+});
+
+/** Parse a Request's searchParams against a schema (typed output). */
+export function parseSearchParams<Schema extends z.ZodType>(
+  searchParams: URLSearchParams,
+  schema: Schema
+): z.output<Schema> {
+  const raw: Record<string, string> = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (value !== "") raw[key] = value;
+  }
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    throw new ValidationError(
+      result.error.issues.map((issue) => issue.message)
+    );
+  }
+  return result.data;
+}
 
 
 // ============================================================
