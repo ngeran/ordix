@@ -203,18 +203,18 @@ export function PosScreen() {
           />
         </section>
 
-        {/* -- Right: order tray (xl+) -- */}
-        <aside className="hidden w-96 shrink-0 flex-col border-l border-border p-4 xl:flex">
+        {/* -- Right: order tray — ALWAYS visible from tablet up -- */}
+        <aside className="hidden w-72 shrink-0 flex-col overflow-hidden border-l border-border p-3 lg:w-80 lg:p-4 xl:w-96 md:flex">
           <CartPanel placing={placing} onSubmit={submitTicket} />
         </aside>
       </div>
 
-      {/* -- Mobile/tablet: floating tray bar → drawer -- */}
+      {/* -- Phones only: floating tray bar → drawer -- */}
       <button
         onClick={() => setDrawerOpen(true)}
         disabled={lineCount === 0 && !appendOrderId}
         className={cn(
-          "fixed bottom-20 right-4 z-30 flex items-center gap-3 rounded-2xl bg-primary px-6 py-5 text-lg font-bold text-on-primary shadow-pop transition-opacity lg:bottom-6 xl:hidden",
+          "fixed bottom-20 right-4 z-30 flex items-center gap-3 rounded-2xl bg-primary px-6 py-5 text-lg font-bold text-on-primary shadow-pop transition-opacity md:hidden",
           lineCount === 0 && !appendOrderId && "pointer-events-none opacity-0"
         )}
         aria-label={`${lineCount} ${t("common.items")}`}
@@ -223,9 +223,9 @@ export function PosScreen() {
         <span>{lineCount}</span>
       </button>
 
-      {/* Tray drawer (below xl) */}
+      {/* Tray drawer (phones only) */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-40 flex justify-end bg-black/50 xl:hidden">
+        <div className="fixed inset-0 z-40 flex justify-end bg-black/50 md:hidden">
           <div className="scrollbar-thin flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto bg-surface p-3 shadow-pop">
             <CartPanel
               placing={placing}

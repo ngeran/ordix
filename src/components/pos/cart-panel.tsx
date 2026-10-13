@@ -68,7 +68,7 @@ export function CartPanel({ placing, onSubmit, onClose }: CartPanelProps) {
     : t("pos.confirmPlaceBody", { units: totalUnits });
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border bg-surface-container-low p-4 shadow-card">
+    <div className="flex h-full min-h-0 flex-1 flex-col rounded-2xl border border-border bg-surface-container-low p-3 shadow-card lg:p-4">
       {/* -- Header -- */}
       <div className="flex items-center justify-between border-b border-border pb-3">
         <div className="flex items-center gap-2.5">
@@ -107,8 +107,9 @@ export function CartPanel({ placing, onSubmit, onClose }: CartPanelProps) {
         </div>
       </div>
 
-      {/* -- Queued lines -- */}
-      <div className="scrollbar-thin max-h-72 min-h-0 space-y-3 overflow-y-auto py-3 pr-1">
+      {/* -- Queued lines: fill ALL available height; the scrollbar
+          appears only when the queue outgrows the device -- */}
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pr-1">
         {items.length === 0 ? (
           <EmptyState
             icon={ReceiptText}
