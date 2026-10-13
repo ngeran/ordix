@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Banknote, CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Lock } from "lucide-react";
 import type { OrderSummary } from "@/types";
 import { usePolling } from "@/lib/use-polling";
 import { useT } from "@/lib/i18n";
@@ -15,18 +15,17 @@ import { Button } from "@/components/ui/button";
 import { LoadingArea } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/orders/status-badge";
+import { OrderProgress } from "@/components/orders/order-progress";
 import { CloseOrderDialog } from "@/components/cashier/close-order-dialog";
 
 // ============================================================
-// SECTION: Cashier screen
+// SECTION: Department closure screen
 // ------------------------------------------------------------
-// The order taker and the cashier are the same person; this
-// screen is simply the "who owes me money" checklist:
-//   1. "Waiting for payment" — production_complete orders, each
-//      with ONE giant button opening the payment dialog
-//   2. "Completed today" — closed orders for the end-of-day tally
-// The same close action is also available on each order's detail
-// page (shared CloseOrderDialog component).
+// Three sections:
+//   1. Returned — production_complete orders, each with a
+//      "Close order" button (the department's final step)
+//   2. Still in production — read-only, with progress bars
+//   3. Closed today — the end-of-day tally
 // ============================================================
 
 export function CashierScreen() {
@@ -37,15 +36,18 @@ export function CashierScreen() {
     { intervalMs: 5_000 }
   );
   const { data: historyOrders } = usePolling<OrderSummary[]>(
-    "/api/orders?scope=history",
+    "/api/orders?scope=history&status=completed",
     { intervalMs: 15_000 }
   );
 
-  const waiting = (activeOrders ?? []).filter(
+  const returned = (activeOrders ?? []).filter(
     (order) => order.status === "production_complete"
   );
-  const paidToday = (historyOrders ?? []).filter(
-    (order) => order.status === "completed" && order.paidAt !== null
+  const stillWorking = (activeOrders ?? []).filter(
+    (order) => order.status === "in_production"
+  );
+  const closedToday = (historyOrders ?? []).filter(
+    (order) => order.completedAt !== null
   );
 
   const [closingOrder, setClosingOrder] = useState<OrderSummary | null>(null);
@@ -55,24 +57,24 @@ export function CashierScreen() {
       <h1 className="mb-4 text-2xl font-bold">{t("cashier.title")}</h1>
 
       {/* ============================================================
-          SECTION: Waiting for payment
+          SECTION: Returned — waiting for closure
           ============================================================ */}
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-on-surface-muted">
-        {t("cashier.ready")} ({waiting.length})
+        {t("cashier.ready")} ({returned.length})
       </h2>
       {activeOrders === null ? (
         <LoadingArea label={t("common.loading")} />
-      ) : waiting.length === 0 ? (
-        <EmptyState icon={Banknote} title={t("cashier.empty")} />
+      ) : returned.length === 0 ? (
+        <EmptyState icon={ClipboardCheck} title={t("cashier.empty")} />
       ) : (
         <ul className="mb-8 space-y-3">
-          {waiting.map((order) => (
+          {returned.map((order) => (
             <li key={order.id}>
               <Card className="flex flex-wrap items-center gap-3 p-4">
                 <div className="min-w-0 flex-1">
                   <Link
                     href={`/orders/${order.id}`}
-                    className="font-mono font-bold hover:text-primary"
+                    className="font-mono font-bold text-primary hover:underline"
                   >
                     {order.orderNumber}
                   </Link>
@@ -80,8 +82,9 @@ export function CashierScreen() {
                     {order.customerName ?? "—"}
                   </p>
                 </div>
+                <StatusBadge status={order.status} />
                 <Button size="lg" onClick={() => setClosingOrder(order)}>
-                  <Banknote className="h-5 w-5" />
+                  <Lock className="h-5 w-5" />
                   {t("cashier.close")}
                 </Button>
               </Card>
@@ -91,22 +94,32 @@ export function CashierScreen() {
       )}
 
       {/* ============================================================
-          SECTION: Completed today
+          SECTION: Still in production (read-only)
           ============================================================ */}
-      {paidToday.length > 0 && (
+      {stillWorking.length > 0 && (
         <>
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-on-surface-muted">
-            {t("cashier.paidToday")} ({paidToday.length})
+            {t("production.working")} ({stillWorking.length})
           </h2>
-          <ul className="space-y-2">
-            {paidToday.map((order) => (
+          <ul className="mb-8 space-y-2">
+            {stillWorking.map((order) => (
               <li key={order.id}>
-                <Card className="flex items-center gap-3 p-3 text-sm">
-                  <CheckCircle2 className="h-5 w-5 shrink-0 text-success" aria-hidden />
-                  <span className="font-mono font-semibold">{order.orderNumber}</span>
-                  <span className="min-w-0 flex-1 truncate text-on-surface-muted">
-                    {order.customerName ?? "—"}
-                  </span>
+                <Card className="p-3">
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/orders/${order.id}`}
+                      className="font-mono text-sm font-semibold text-primary hover:underline"
+                    >
+                      {order.orderNumber}
+                    </Link>
+                    <span className="min-w-0 flex-1 truncate text-sm text-on-surface-muted">
+                      {order.customerName ?? "—"}
+                    </span>
+                    <StatusBadge status={order.status} />
+                  </div>
+                  <div className="mt-2">
+                    <OrderProgress order={order} />
+                  </div>
                 </Card>
               </li>
             ))}
@@ -114,7 +127,37 @@ export function CashierScreen() {
         </>
       )}
 
-      {/* -- Payment dialog (shared with the order detail page) -- */}
+      {/* ============================================================
+          SECTION: Closed today
+          ============================================================ */}
+      {closedToday.length > 0 && (
+        <>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-on-surface-muted">
+            {t("cashier.paidToday")} ({closedToday.length})
+          </h2>
+          <ul className="space-y-2">
+            {closedToday.map((order) => (
+              <li key={order.id}>
+                <Card className="flex items-center gap-3 p-3 text-sm">
+                  <CheckCircle2
+                    className="h-5 w-5 shrink-0 text-success"
+                    aria-hidden
+                  />
+                  <span className="font-mono font-semibold">
+                    {order.orderNumber}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-on-surface-muted">
+                    {order.customerName ?? "—"}
+                  </span>
+                  <StatusBadge status={order.status} />
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* -- Close-order dialog (shared with the order detail page) -- */}
       <CloseOrderDialog order={closingOrder} onClose={() => setClosingOrder(null)} />
     </div>
   );

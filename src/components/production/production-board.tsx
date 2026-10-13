@@ -4,14 +4,15 @@
 // SECTION: Imports
 // ============================================================
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Check, ChefHat, Play } from "lucide-react";
 import type { OrderItem } from "@/db/schema";
-import type { OrderDetail as OrderDetailData, OrderSummary } from "@/types";
+import type { OrderSummary } from "@/types";
 import { api, showErrorToast } from "@/lib/api-client";
+import { canCompleteItem, canSendItem } from "@/lib/order-status";
 import { usePolling } from "@/lib/use-polling";
-import { useLocale, useT } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
@@ -19,27 +20,39 @@ import { Card } from "@/components/ui/card";
 import { LoadingArea } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/orders/status-badge";
+import { OrderProgress } from "@/components/orders/order-progress";
+import {
+  productionLabel,
+  PRODUCTION_BADGE_CLASS,
+  quantityLabel,
+} from "@/components/orders/item-labels";
 
 // ============================================================
-// SECTION: Production board
+// SECTION: Production board (manager view)
 // ------------------------------------------------------------
-// Two columns: Νέες παραγγελίες (placed) → Σε παραγωγή
-// (in_production). Cards list every ACTIVE line with its state
-// and one big button each:
-//   pending       → ▶ Send to production
+// ONE poll for all active orders WITH their attached items
+// (include=items — the server batches it into two queries).
+// Columns: Queue (placed) → In production → Returned (hidden
+// when empty on narrow screens).
+//
+// Item actions:
+//   pending       → ▶ Send   (first send flips the order to
+//                              in_production automatically)
 //   in_production → ✔ Done
-//   completed     → green badge (no button)
-// When ALL active lines of an order are completed, the card
-// shows the "Production finished" button that hands the order
-// to the cashier.
+// When the last active item completes, the server auto-returns
+// the order to the department and the board toasts it.
+//
+// A per-item `pending` set blocks double taps; bulk "send all"
+// runs the FIRST request serially (it may flip the order
+// status) and the rest in parallel, reporting partial failures.
 // ============================================================
+
+type ProductionAction = "send_to_production" | "complete_production";
 
 export function ProductionBoard() {
   const t = useT();
-  const locale = useLocale();
-
-  const { data: activeOrders } = usePolling<OrderSummary[]>(
-    "/api/orders?scope=active",
+  const { data: activeOrders, isStale, refresh } = usePolling<OrderSummary[]>(
+    "/api/orders?scope=active&include=items",
     { intervalMs: 5_000 }
   );
 
@@ -47,134 +60,133 @@ export function ProductionBoard() {
     ["placed", "in_production"].includes(order.status)
   );
 
-  // -- Item lists: fetched per order (only a handful are live) --
-  const [details, setDetails] = useState<Record<string, OrderDetailData>>({});
+  const queueOrders = productionOrders.filter(
+    (order) => order.status === "placed"
+  );
+  const workingOrders = productionOrders.filter(
+    (order) => order.status === "in_production"
+  );
 
-  const detailKey = productionOrders
-    .map((order) => `${order.id}:${order.status}`)
-    .join(",");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadDetails = async () => {
-      const results = await Promise.allSettled(
-        productionOrders.map((order) =>
-          api.get<OrderDetailData>(`/api/orders/${order.id}`)
-        )
-      );
-      if (cancelled) return;
-      const next: Record<string, OrderDetailData> = {};
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          next[productionOrders[index].id] = result.value;
-        }
-      });
-      setDetails(next);
-    };
-
-    void loadDetails();
-    const timer = setInterval(loadDetails, 7_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- productionOrders is stable per detailKey
-  }, [detailKey]);
-
-  // ============================================================
-  // SECTION: Item clicks (production manager's two taps)
-  // ============================================================
+  // -- Per-item in-flight guard: blocks double taps. --
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const markPending = (itemId: string, on: boolean) => {
+    setPending((previous) => {
+      const next = new Set(previous);
+      if (on) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  };
 
   const itemAction = async (
     orderId: string,
-    itemId: string,
-    action: "send_to_production" | "complete_production"
+    item: OrderItem,
+    action: ProductionAction
   ) => {
+    markPending(item.id, true);
     try {
-      await api.post(`/api/orders/${orderId}/items/${itemId}`, { action });
-      // The 5 s poll reconciles the board; no local patch needed.
+      const updated = await api.post<OrderSummary>(
+        `/api/orders/${orderId}/items/${item.id}`,
+        { action }
+      );
+      if (updated.status === "production_complete") {
+        toast.success(
+          t("production.returned", { number: updated.orderNumber })
+        );
+      }
+      refresh();
     } catch (error) {
       showErrorToast(error, t("error.generic"));
+    } finally {
+      markPending(item.id, false);
     }
   };
 
-  const finishOrder = async (orderId: string) => {
-    try {
-      await api.post(`/api/orders/${orderId}/status`, {
-        status: "production_complete",
-      });
-      toast.success(t("cashier.ready"));
-    } catch (error) {
-      showErrorToast(error, t("error.generic"));
-    }
-  };
-
-  const sendAll = async (order: OrderSummary) => {
-    const detail = details[order.id];
-    const pending = detail?.items.filter(
+  // -- Bulk send: first request serially (flips placed →
+  // in_production), rest in parallel; partial failures reported. --
+  const bulkSend = async (order: OrderSummary) => {
+    const targets = (order.items ?? []).filter(
       (item) => item.status === "active" && item.productionStatus === "pending"
     );
-    if (!detail || !pending || pending.length === 0) return;
+    if (targets.length === 0) return;
+
+    markPending(targets[0].id, true);
     try {
-      await Promise.all(
-        pending.map((item) =>
-          api.post(`/api/orders/${order.id}/items/${item.id}`, {
-            action: "send_to_production",
-          })
-        )
-      );
+      await api.post(`/api/orders/${order.id}/items/${targets[0].id}`, {
+        action: "send_to_production",
+      });
     } catch (error) {
       showErrorToast(error, t("error.generic"));
+      return;
+    } finally {
+      markPending(targets[0].id, false);
     }
+
+    const results = await Promise.allSettled(
+      targets.slice(1).map((item) =>
+        api.post(`/api/orders/${order.id}/items/${item.id}`, {
+          action: "send_to_production",
+        })
+      )
+    );
+    const failures = results.filter(
+      (result) => result.status === "rejected"
+    ).length;
+    if (failures > 0) {
+      toast.error(`${failures} item(s) failed to send`);
+    }
+    refresh();
   };
 
-  const columns = [
-    {
-      key: "placed",
-      title: t("production.queue"),
-      orders: productionOrders.filter((order) => order.status === "placed"),
-    },
-    {
-      key: "working",
-      title: t("production.working"),
-      orders: productionOrders.filter((order) => order.status === "in_production"),
-    },
-  ] as const;
-
   return (
-    <div className="mx-auto max-w-6xl px-4 py-4">
-      <h1 className="mb-4 text-2xl font-bold">{t("production.title")}</h1>
+    <div className="mx-auto max-w-7xl px-4 py-4">
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{t("production.title")}</h1>
+        {isStale && (
+          <span role="status" className="text-xs text-warning">
+            {t("orders.staleData")}
+          </span>
+        )}
+      </div>
 
       {activeOrders === null ? (
         <LoadingArea label={t("common.loading")} />
       ) : productionOrders.length === 0 ? (
-        <EmptyState icon={ChefHat} title={t("production.empty")} hint={t("orders.emptyHint")} />
+        <EmptyState
+          icon={ChefHat}
+          title={t("production.empty")}
+          hint={t("orders.emptyHint")}
+        />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {columns.map((column) => (
-            <section key={column.key} aria-label={column.title}>
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-on-surface-muted">
-                {column.title}
-                <span className="rounded-full bg-surface-container px-2 py-0.5 text-xs">
-                  {column.orders.length}
-                </span>
-              </h2>
-              <div className="space-y-3">
-                {column.orders.map((order) => (
-                  <ProductionCard
-                    key={order.id}
-                    order={order}
-                    detail={details[order.id]}
-                    locale={locale}
-                    onItemAction={itemAction}
-                    onFinish={finishOrder}
-                    onSendAll={sendAll}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <BoardColumn
+            title={t("production.queue")}
+            count={queueOrders.length}
+            orders={queueOrders}
+            render={(order) => (
+              <ProductionCard
+                key={order.id}
+                order={order}
+                pending={pending}
+                onItemAction={itemAction}
+                onBulkSend={bulkSend}
+              />
+            )}
+          />
+          <BoardColumn
+            title={t("production.working")}
+            count={workingOrders.length}
+            orders={workingOrders}
+            render={(order) => (
+              <ProductionCard
+                key={order.id}
+                order={order}
+                pending={pending}
+                onItemAction={itemAction}
+                onBulkSend={bulkSend}
+              />
+            )}
+          />
         </div>
       )}
     </div>
@@ -182,37 +194,65 @@ export function ProductionBoard() {
 }
 
 // ============================================================
-// SECTION: Production card — items with two-tap flow
+// SECTION: Column wrapper (sticky header)
+// ============================================================
+
+function BoardColumn({
+  title,
+  count,
+  orders,
+  render,
+}: {
+  title: string;
+  count: number;
+  orders: OrderSummary[];
+  render: (order: OrderSummary) => React.ReactNode;
+}) {
+  return (
+    <section aria-label={title} className="flex min-h-0 flex-col gap-3">
+      <h2 className="sticky top-16 z-10 flex items-center gap-2 rounded-lg bg-background/90 px-1 py-2 text-sm font-semibold uppercase tracking-wider text-on-surface-muted backdrop-blur">
+        {title}
+        <span className="rounded-full bg-surface-container px-2 py-0.5 text-xs">
+          {count}
+        </span>
+      </h2>
+      {orders.map((order) => render(order))}
+      {orders.length === 0 && (
+        <Card className="p-4 text-sm text-on-surface-muted">—</Card>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
+// SECTION: Production card
 // ============================================================
 
 function ProductionCard({
   order,
-  detail,
-  locale,
+  pending,
   onItemAction,
-  onFinish,
-  onSendAll,
+  onBulkSend,
 }: {
   order: OrderSummary;
-  detail?: OrderDetailData;
-  locale: "en" | "el";
+  pending: Set<string>;
   onItemAction: (
     orderId: string,
-    itemId: string,
-    action: "send_to_production" | "complete_production"
+    item: OrderItem,
+    action: ProductionAction
   ) => void;
-  onFinish: (orderId: string) => void;
-  onSendAll: (order: OrderSummary) => void;
+  onBulkSend: (order: OrderSummary) => void;
 }) {
   const t = useT();
-  const activeItems =
-    detail?.items.filter((item) => item.status === "active") ?? [];
+  const activeItems = (order.items ?? []).filter(
+    (item) => item.status === "active"
+  );
+  const pendingItems = activeItems.filter(
+    (item) => item.productionStatus === "pending"
+  );
   const allProduced =
     activeItems.length > 0 &&
     activeItems.every((item) => item.productionStatus === "completed");
-  const pendingCount = activeItems.filter(
-    (item) => item.productionStatus === "pending"
-  ).length;
 
   return (
     <Card className="overflow-hidden">
@@ -231,104 +271,91 @@ function ProductionCard({
         </span>
       </Link>
 
-      <ul className="divide-y divide-border">
+      <div className="space-y-1 px-4 pt-3">
+        {order.notes && (
+          <p className="text-xs italic text-on-surface-muted">
+            ✎ {order.notes}
+          </p>
+        )}
+        <OrderProgress order={order} />
+      </div>
+
+      <ul className="space-y-1 px-4 pt-2">
         {activeItems.length === 0 ? (
-          <li className="px-4 py-3 text-sm text-on-surface-muted">
+          <li className="py-1 text-sm text-on-surface-muted">
             {t("common.loading")}
           </li>
         ) : (
           activeItems.map((item) => (
-            <ProductionItemRow
-              key={item.id}
-              item={item}
-              orderId={order.id}
-              locale={locale}
-              onAction={onItemAction}
-            />
+            <li key={item.id} className="flex items-center gap-3 py-1.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">{item.name}</p>
+                <p className="text-xs text-on-surface-muted">
+                  {quantityLabel(item, t)}
+                  <span className="font-mono"> · {item.partNumber}</span>
+                </p>
+              </div>
+
+              {item.productionStatus === "pending" &&
+                canSendItem(order.status) && (
+                  <Button
+                    size="sm"
+                    loading={pending.has(item.id)}
+                    onClick={() =>
+                      onItemAction(order.id, item, "send_to_production")
+                    }
+                  >
+                    <Play className="h-4 w-4" />
+                    {t("production.send")}
+                  </Button>
+                )}
+              {item.productionStatus === "in_production" &&
+                canCompleteItem(order.status) && (
+                  <Button
+                    variant="success"
+                    size="sm"
+                    loading={pending.has(item.id)}
+                    onClick={() =>
+                      onItemAction(order.id, item, "complete_production")
+                    }
+                  >
+                    <Check className="h-4 w-4" />
+                    {t("production.done")}
+                  </Button>
+                )}
+              {item.productionStatus === "completed" && (
+                <span
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs font-semibold",
+                    PRODUCTION_BADGE_CLASS.completed
+                  )}
+                >
+                  {productionLabel("completed", t)}
+                </span>
+              )}
+            </li>
           ))
         )}
       </ul>
 
-      <div className="space-y-2 px-4 pb-3 pt-2">
-        {pendingCount > 0 && order.status === "in_production" && (
-          <Button variant="secondary" size="sm" className="w-full" onClick={() => onSendAll(order)}>
+      <div className="space-y-2 px-4 pb-3 pt-1">
+        {pendingItems.length > 1 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full"
+            onClick={() => onBulkSend(order)}
+          >
             <Play className="h-4 w-4" />
-            {t("production.sendAll")} ({pendingCount})
+            {t("production.sendAll")} ({pendingItems.length})
           </Button>
         )}
-        {allProduced && order.status === "in_production" && (
-          <Button variant="success" size="lg" className="w-full" onClick={() => onFinish(order.id)}>
-            <Check className="h-5 w-5" />
-            {t("production.finishOrder")}
-          </Button>
+        {allProduced && (
+          <p className="rounded-lg bg-success-soft px-3 py-2 text-center text-xs font-semibold text-success">
+            {t("production.allProduced")}
+          </p>
         )}
       </div>
     </Card>
-  );
-}
-
-// ============================================================
-// SECTION: Item row — the manager's two taps
-// ============================================================
-
-function ProductionItemRow({
-  item,
-  orderId,
-  locale,
-  onAction,
-}: {
-  item: OrderItem;
-  orderId: string;
-  locale: "en" | "el";
-  onAction: (
-    orderId: string,
-    itemId: string,
-    action: "send_to_production" | "complete_production"
-  ) => void;
-}) {
-  const t = useT();
-
-  const quantityLabel =
-    item.quantityBoxes > 0 && item.quantityItems > 0
-      ? `${item.quantityBoxes} ${t("pos.boxes")} + ${item.quantityItems} ${t("pos.items")}`
-      : item.quantityBoxes > 0
-        ? `${item.quantityBoxes} ${t("pos.boxes")}`
-        : `${item.quantityItems} ${t("pos.items")}`;
-
-  return (
-    <li className="flex items-center gap-3 px-4 py-2.5">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{item.name}</p>
-        <p className="text-xs text-on-surface-muted">
-          {quantityLabel}
-          <span className="font-mono"> · {item.partNumber}</span>
-          {item.note && <span className="block text-info">✎ {item.note}</span>}
-        </p>
-      </div>
-
-      {item.productionStatus === "pending" && (
-        <Button size="sm" onClick={() => onAction(orderId, item.id, "send_to_production")}>
-          <Play className="h-4 w-4" />
-          {t("production.send")}
-        </Button>
-      )}
-      {item.productionStatus === "in_production" && (
-        <Button variant="success" size="sm" onClick={() => onAction(orderId, item.id, "complete_production")}>
-          <Check className="h-4 w-4" />
-          {t("production.done")}
-        </Button>
-      )}
-      {item.productionStatus === "completed" && (
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
-            "bg-success-soft text-success"
-          )}
-        >
-          <Check className="h-4 w-4" aria-hidden />
-          {t("production.done")}
-        </span>
-      )}
-    </li>
   );
 }

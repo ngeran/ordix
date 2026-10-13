@@ -13,6 +13,7 @@ import {
   Ban,
   Banknote,
   Clock,
+  Lock,
   PackageCheck,
   Pause,
   Play,
@@ -27,7 +28,14 @@ import type {
   OrdixSessionUser,
   OrderDetail as OrderDetailData,
 } from "@/types";
-import { allowedTransitions, ORDER_MAIN_FLOW, STATUS_META, mainFlowIndex } from "@/lib/order-status";
+import {
+  allItemsProduced,
+  allowedTransitions,
+  ORDER_MAIN_FLOW,
+  STATUS_META,
+  mainFlowIndex,
+} from "@/lib/order-status";
+import { CloseOrderDialog } from "@/components/cashier/close-order-dialog";
 
 import { usePolling } from "@/lib/use-polling";
 import { api, showErrorToast } from "@/lib/api-client";
@@ -238,6 +246,12 @@ export function OrderDetailScreen({
   const isTerminal = ["completed", "cancelled"].includes(order.status);
   const canAppend = ["placed", "in_production", "on_hold"].includes(order.status);
   const canEditQuantities = canAppend;
+  // The department closes: production_complete, or in_production
+  // with every active item produced (edge case).
+  const canClose =
+    order.status === "production_complete" ||
+    (order.status === "in_production" && allItemsProduced(activeItems));
+  const [closingOrder, setClosingOrder] = useState(false);
 
   // ============================================================
   // SECTION: Mutations
@@ -523,11 +537,28 @@ export function OrderDetailScreen({
         {/* ============================================================
             SECTION: Aside — status actions + courier
             ------------------------------------------------------------
-            NO close/complete buttons here: production_complete
-            orders are closed ONLY from the Ταμείο screen (the
+            NO close/complete buttons here while production is
+            running: production_complete orders are closed ONLY
+            from the Ταμείο screen or via canClose below (the
             server rejects any direct completed transition).
             ============================================================ */}
         <div className="space-y-4">
+          {/* Department closure — the ONLY path to completed */}
+          {canClose && (
+            <Card className="p-4">
+              <Button
+                variant="success"
+                size="xl"
+                className="w-full text-lg"
+                disabled={busy}
+                onClick={() => setClosingOrder(true)}
+              >
+                <Lock className="h-6 w-6" />
+                {t("detail.closeOrder")}
+              </Button>
+            </Card>
+          )}
+
           {!isTerminal && (
             <Card className="space-y-2 p-4">
               {/* Primary: advance to the next main-flow stage — the one
@@ -675,7 +706,7 @@ export function OrderDetailScreen({
         </div>
       </Dialog>
 
-      {/* Dispatch — optionally record courier + tracking first */}
+      {/* Dispatch — optionally record courier + tracking first (legacy) */}
       <DispatchDialog
         open={dispatchOpen}
         busy={busy}
@@ -687,6 +718,14 @@ export function OrderDetailScreen({
         }}
       />
 
+      {/* Department closure dialog (the ONLY completion path) */}
+      <CloseOrderDialog
+        order={
+          closingOrder ? { id: order.id, orderNumber: order.orderNumber } : null
+        }
+        onClose={() => setClosingOrder(false)}
+        onClosed={refresh}
+      />
     </div>
   );
 }

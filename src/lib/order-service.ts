@@ -10,6 +10,7 @@ import {
   orderEvents,
   orderItems,
   orders,
+  products,
   users,
   type Order,
   type OrderItem,
@@ -168,12 +169,14 @@ export async function listOrders(
     ? sql`${orders.placedAt} <= ${unixEpoch(`${to.slice(0, 10)}T23:59:59Z`)}`
     : undefined;
 
-  // -- Search across order number + customer name (escaped LIKE) --
+  // -- Search across order number, customer name AND part numbers
+  // (escaped LIKE; part numbers via EXISTS on order_items) --
   const q = search?.trim().toLowerCase();
   const searchClause = q
     ? or(
         sql`lower(${orders.orderNumber}) like ${`%${escapeLike(q)}%`} escape '\\'`,
-        sql`lower(coalesce(${customers.name}, ${orders.customerName})) like ${`%${escapeLike(q)}%`} escape '\\'`
+        sql`lower(coalesce(${customers.name}, ${orders.customerName})) like ${`%${escapeLike(q)}%`} escape '\\'`,
+        sql`exists (select 1 from ${orderItems} oi join ${products} p on p.id = oi.product_id where oi.order_id = ${orders.id} and (lower(oi.part_number) like ${`%${escapeLike(q)}%`} escape '\\' or lower(p.name) like ${`%${escapeLike(q)}%`} escape '\\'))`
       )
     : undefined;
 
