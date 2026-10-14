@@ -3,7 +3,7 @@
 // ============================================================
 
 import { z } from "zod";
-import { ORDER_STATUSES } from "@/db/schema";
+import { ORDER_STATUSES, USER_ROLES } from "@/db/schema";
 
 // ============================================================
 // SECTION: Shared field schemas
@@ -63,6 +63,40 @@ export const customerCreateSchema = z.object({
 });
 
 export const customerUpdateSchema = customerCreateSchema.partial();
+
+// ============================================================
+// SECTION: Users (admin → Users)
+// ------------------------------------------------------------
+// Usernames are what staff type on a tablet: lowercase letters,
+// digits and . _ - only (no spaces, no accents to mistype).
+// ============================================================
+
+const username = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9._-]{2,32}$/, "Username: 2–32 characters, letters a–z, digits, . _ -");
+const password = z.string().min(6, "Password must be at least 6 characters").max(200);
+
+export const userCreateSchema = z.object({
+  username,
+  name: shortText,
+  password,
+  role: z.enum(USER_ROLES).default("staff"),
+  isActive: z.boolean().default(true),
+});
+
+export const userUpdateSchema = z.object({
+  username: username.optional(),
+  name: shortText.optional(),
+  /** Set only when the admin resets the password. */
+  password: password.optional(),
+  role: z.enum(USER_ROLES).optional(),
+  isActive: z.boolean().optional(),
+});
+
+/** App settings document — see src/lib/settings.ts. */
+export { settingsSchema } from "@/lib/settings";
 
 // ============================================================
 // SECTION: Catalog — products (pure identifiers, no stock/prices)
@@ -132,6 +166,8 @@ export const itemActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("send_to_production") }),
   /** Production manager: in_production → completed. */
   z.object({ action: z.literal("complete_production") }),
+  /** Production manager: undo a mis-tap (completed → in_production → pending). */
+  z.object({ action: z.literal("undo_production") }),
 ]);
 
 /** Body of PATCH /api/orders/[id]/items/[itemId] — edit quantities. */

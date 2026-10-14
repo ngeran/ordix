@@ -16,6 +16,13 @@ import { Button } from "@/components/ui/button";
 // trap, Esc-to-close and top-layer stacking for free — no
 // accessibility plumbing to get wrong. Controlled via `open`;
 // closes on backdrop click, Esc or the X button.
+//
+// Sizing: the dialog is a flex column capped to the VISIBLE
+// viewport (--vvh, published by startViewportTracking — iOS keeps
+// dvh unchanged when the keyboard opens). Header and footer stay
+// put; only the body scrolls, so Save is always reachable even on
+// a phone in landscape. With the keyboard up it docks to the top
+// so the focused field isn't hidden behind the keyboard.
 // ============================================================
 
 interface DialogProps {
@@ -67,13 +74,14 @@ export function Dialog({ open, onClose, title, children, footer, wide }: DialogP
       onClick={handleBackdropClick}
       aria-label={title}
       className={cn(
-        "m-auto w-[calc(100vw-2rem)] rounded-2xl border border-border bg-surface p-0 text-on-surface shadow-pop backdrop:backdrop-blur-sm",
+        "m-auto max-h-[calc(var(--vvh,100dvh)-1.5rem)] w-[calc(100vw-1.5rem-env(safe-area-inset-left)-env(safe-area-inset-right))] overflow-hidden rounded-2xl border border-border bg-surface p-0 text-on-surface shadow-pop backdrop:backdrop-blur-sm",
+        "open:flex open:flex-col kbd-open:mt-3 kbd-open:mb-auto",
         wide ? "max-w-2xl" : "max-w-md"
       )}
     >
-      <div className="animate-fade-scale-in">
+      <div className="flex min-h-0 flex-1 animate-fade-scale-in flex-col">
         {/* -- Header -- */}
-        <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-4 short:py-2.5">
           <h2 className="text-lg font-semibold">{title}</h2>
           <Button
             variant="ghost"
@@ -86,13 +94,13 @@ export function Dialog({ open, onClose, title, children, footer, wide }: DialogP
         </div>
 
         {/* -- Body -- */}
-        <div className="scrollbar-thin max-h-[65vh] overflow-y-auto px-5 py-4">
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 short:py-3">
           {children}
         </div>
 
         {/* -- Footer -- */}
         {footer && (
-          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-4">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 py-4 short:py-2.5">
             {footer}
           </div>
         )}

@@ -4,6 +4,7 @@
 
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
+import { alias } from "drizzle-orm/sqlite-core";
 import {
   customers,
   orderCounters,
@@ -18,7 +19,6 @@ import {
 } from "@/db/schema";
 import {
   ACTIVE_ORDER_STATUSES,
-  allItemsProduced,
   formatOrderNumber,
 } from "@/lib/order-status";
 import { getBusinessDate } from "@/lib/utils";
@@ -180,14 +180,17 @@ export async function listOrders(
       )
     : undefined;
 
+  const closer = alias(users, "closer");
   const rows = await db
     .select({
       order: orders,
       createdByName: users.name,
+      closedByName: closer.name,
       customerRecordName: customers.name,
     })
     .from(orders)
     .leftJoin(users, eq(users.id, orders.createdById))
+    .leftJoin(closer, eq(closer.id, orders.closedById))
     .leftJoin(customers, eq(customers.id, orders.customerId))
     .where(
       and(scopeClause, statusClause, dateClause, fromClause, toClause, searchClause)
@@ -225,6 +228,7 @@ export async function listOrders(
     ...row.order,
     customerName: row.customerRecordName ?? row.order.customerName ?? null,
     createdByName: row.createdByName ?? null,
+    closedByName: row.closedByName ?? null,
     itemCount: Number(aggByOrder.get(row.order.id)?.itemCount ?? 0),
     totalUnits: Number(aggByOrder.get(row.order.id)?.totalUnits ?? 0),
     producedCount: Number(aggByOrder.get(row.order.id)?.producedCount ?? 0),
@@ -264,50 +268,6 @@ function unixEpoch(value: string): number {
   return Math.floor(new Date(value).getTime() / 1000);
 }
 
-/**
- * Auto-return: flips an in_production order to production_complete
- * when its last active item is produced. Race-safe — the
- * conditional UPDATE only fires while the status is still
- * in_production; the event is written only when a row changed.
- * Returns the new status so callers can toast/branch.
- */
-export async function returnOrderIfAllProduced(
-  db: Database,
-  orderId: string,
-  userId: string
-): Promise<OrderStatus> {
-  const items = await db
-    .select({
-      status: orderItems.status,
-      productionStatus: orderItems.productionStatus,
-    })
-    .from(orderItems)
-    .where(eq(orderItems.orderId, orderId));
-
-  if (!allItemsProduced(items)) return "in_production";
-
-  const returned = await db
-    .update(orders)
-    .set({ status: "production_complete", updatedAt: new Date() })
-    .where(
-      and(eq(orders.id, orderId), eq(orders.status, "in_production"))
-    )
-    .returning({ id: orders.id });
-
-  if (returned.length > 0) {
-    await db.insert(orderEvents).values({
-      id: crypto.randomUUID(),
-      orderId,
-      fromStatus: "in_production",
-      toStatus: "production_complete",
-      userId,
-      note: "All items produced — auto-returned to the department",
-    });
-    return "production_complete";
-  }
-  return "in_production";
-}
-
 /** Full detail for the order page: items + timeline with actor names. */
 export async function getOrderDetail(
   db: Database,
@@ -340,8 +300,16 @@ export async function getOrderDetail(
     .where(eq(orderEvents.orderId, orderId))
     .orderBy(orderEvents.createdAt);
 
+  // Everyone who touched the order: timeline actors, the closer,
+  // and who started / finished each line in production.
   const actorIds = [
-    ...new Set(rawEvents.map((event) => event.userId).filter(Boolean)),
+    ...new Set(
+      [
+        ...rawEvents.map((event) => event.userId),
+        orderRow.order.closedById,
+        ...items.flatMap((item) => [item.sentToProductionById, item.productionCompletedById]),
+      ].filter(Boolean)
+    ),
   ] as string[];
   const actors = actorIds.length
     ? await db
@@ -366,6 +334,10 @@ export async function getOrderDetail(
     ...orderRow.order,
     customerName: orderRow.customerRecordName ?? orderRow.order.customerName ?? null,
     createdByName: orderRow.createdByName ?? null,
+    closedByName: orderRow.order.closedById
+      ? nameById.get(orderRow.order.closedById) ?? null
+      : null,
+    userNames: Object.fromEntries(nameById),
     items,
     events: rawEvents.map((event) => ({
       ...event,

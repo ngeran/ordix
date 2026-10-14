@@ -96,7 +96,7 @@ export function ProductsScreen() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4">
+    <div className="w-full px-3 py-4 sm:px-5">
       {/* -- Header -- */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{t("products.title")}</h1>
@@ -143,37 +143,25 @@ export function ProductsScreen() {
       ) : products.length === 0 ? (
         <EmptyState icon={Package} title={t("products.empty")} />
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <ul className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,24rem),1fr))]">
           {products.map((product) => (
-            <li key={product.id}>
+            <li key={product.id} className="min-w-0">
               <Card
                 className={cn(
                   "flex h-full flex-col gap-3 p-4",
                   !product.isActive && "opacity-60"
                 )}
               >
-                {/* Title + active toggle */}
+                {/* Title */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold leading-snug">
+                    <p className="line-clamp-2 break-words font-semibold leading-snug">
                       {product.name}
                     </p>
                     <p className="mt-0.5 truncate font-mono text-xs text-on-surface-muted">
                       {product.partNumber} · {product.categoryName ?? "—"}
                       {product.barcode ? ` · ${product.barcode}` : ""}
                     </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
-                    <span className="text-[11px] text-on-surface-muted">
-                      {product.isActive
-                        ? t("common.active")
-                        : t("common.inactive")}
-                    </span>
-                    <Switch
-                      checked={product.isActive}
-                      onChange={(next) => toggleActive(product, next)}
-                      aria-label={t("products.isActive")}
-                    />
                   </div>
                 </div>
 
@@ -195,9 +183,22 @@ export function ProductsScreen() {
                     <Pencil className="h-4 w-4" />
                     {t("common.edit")}
                   </Button>
+                  <div className="flex shrink-0 items-center gap-2 px-1">
+                    <span className="text-xs text-on-surface-muted">
+                      {product.isActive
+                        ? t("common.active")
+                        : t("common.inactive")}
+                    </span>
+                    <Switch
+                      checked={product.isActive}
+                      onChange={(next) => toggleActive(product, next)}
+                      aria-label={t("products.isActive")}
+                    />
+                  </div>
                   <Button
                     variant="ghost"
                     size="iconSm"
+                    className="h-11 w-11 shrink-0"
                     onClick={() => setDeleting(product)}
                     aria-label={t("common.delete")}
                   >

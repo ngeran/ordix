@@ -11,18 +11,19 @@ import type { OrderStatus } from "@/db/schema";
 // Every transition is validated server-side; the UI derives its
 // buttons from the same map, so the two can never disagree.
 //
-//   Order Entry ──► placed (Submitted / Production Queue)
-//   placed ──► in_production     (auto on first item sent)
+//   Order Entry ──► placed (New — waiting for production)
+//   placed ──► in_production     (auto when the production
+//                                 manager starts the first item)
 //   in_production ──► production_complete
-//                                (AUTO when every active item is
-//                                 completed; manual fallback only
-//                                 if all items are completed)
+//                                (the production manager taps
+//                                 "Order complete" once EVERY
+//                                 active item is done)
 //   production_complete ──► completed
-//                                (ONLY via POST /close by the
-//                                 originating department)
+//                                (ONLY via POST /close — the front
+//                                 desk closes the order)
 //
-// Item production states: pending → selected → in_production →
-// completed (`selected` = picked for the next batch, not started).
+// Item production states: pending → in_production → completed
+// (UI words: Not started → Being made → Done).
 // ============================================================
 
 /** The build-to-order happy path (also the detail-page stepper). */
@@ -85,7 +86,9 @@ const TERMINAL_STATUSES: readonly OrderStatus[] = ["completed", "cancelled"];
 /** Stages an order can legally move to from each current stage. */
 const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   // -- Build-to-order chain --
-  placed: ["in_production", "on_hold", "cancelled"],
+  // No manual "in_production": starting the first item does it,
+  // so the order status can never claim work that isn't happening.
+  placed: ["on_hold", "cancelled"],
   in_production: ["production_complete", "on_hold", "cancelled"],
   // No "completed": the department closure endpoint is the only
   // path to completed (see CLOSABLE_ORDER_STATUSES).
@@ -174,6 +177,57 @@ export function isClosableStatus(status: OrderStatus): boolean {
 }
 
 // ============================================================
+// SECTION: Production progress (one formula for every screen)
+// ------------------------------------------------------------
+// Orders, Production, Closure and the Wallboard all show the same
+// "x of y done · NN%" numbers — computed here, from ACTIVE items
+// only, so no two screens can ever disagree.
+// ============================================================
+
+export interface ProductionProgress {
+  total: number;
+  waiting: number;
+  making: number;
+  done: number;
+  /** Whole-number percentage of active items done. */
+  pct: number;
+  /** Every active item is done (and there is at least one). */
+  allDone: boolean;
+}
+
+function buildProgress(total: number, making: number, done: number): ProductionProgress {
+  return {
+    total,
+    waiting: Math.max(0, total - making - done),
+    making,
+    done,
+    pct: total === 0 ? 0 : Math.round((done / total) * 100),
+    allDone: total > 0 && done === total,
+  };
+}
+
+/** Progress from raw item rows (detail page, production board). */
+export function itemsProgress(
+  items: Array<{ status: string; productionStatus: string }>
+): ProductionProgress {
+  const active = items.filter((item) => item.status === "active");
+  return buildProgress(
+    active.length,
+    active.filter((item) => item.productionStatus === "in_production").length,
+    active.filter((item) => item.productionStatus === "completed").length
+  );
+}
+
+/** Progress from list aggregates (orders list, wallboard). */
+export function summaryProgress(order: {
+  itemCount: number;
+  producedCount: number;
+  inProductionCount: number;
+}): ProductionProgress {
+  return buildProgress(order.itemCount, order.inProductionCount, order.producedCount);
+}
+
+// ============================================================
 // SECTION: Display metadata — labels (bilingual) & colors
 // ------------------------------------------------------------
 // DB values stay stable; the UI words below were approved by the
@@ -191,8 +245,8 @@ interface StatusMeta {
 
 export const STATUS_META: Record<OrderStatus, StatusMeta> = {
   placed: {
-    en: "Submitted",
-    el: "Υποβλήθηκε",
+    en: "New",
+    el: "Νέα",
     badgeClass: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
     accentClass: "bg-sky-500",
   },
@@ -204,8 +258,8 @@ export const STATUS_META: Record<OrderStatus, StatusMeta> = {
     accentClass: "bg-amber-500",
   },
   production_complete: {
-    en: "Complete · returned",
-    el: "Έτοιμη · επιστράφηκε",
+    en: "Ready for pickup",
+    el: "Έτοιμη για παραλαβή",
     badgeClass:
       "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
     accentClass: "bg-violet-500",
@@ -219,7 +273,7 @@ export const STATUS_META: Record<OrderStatus, StatusMeta> = {
   },
   on_hold: {
     en: "On hold",
-    el: "Σε αναμονή",
+    el: "Σε παύση",
     badgeClass:
       "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300",
     accentClass: "bg-orange-500",

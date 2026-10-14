@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ReceiptText, UserRound, X } from "lucide-react";
+import { Check, ChevronRight, ReceiptText, UserRound, X } from "lucide-react";
 import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
 import { useT } from "@/lib/i18n";
@@ -22,15 +22,14 @@ import { Button } from "@/components/ui/button";
 import { LoadingArea } from "@/components/ui/spinner";
 
 // ============================================================
-// SECTION: POS screen — the order-taking terminal
+// SECTION: Order entry screen
 // ------------------------------------------------------------
-//   1. customer banner (step 1, mandatory)
-//   2. tap "+ Add to Tray" on a part card → one box lands in
-//      the ORDER TRAY
-//   3. in the tray: type or step the κουτιά / τεμάχια numbers
-//   4. giant green confirm → straight to production
-// Catalog on the left, tray on the right (desktop); the tray
-// becomes a drawer on tablets and phones.
+// A guided 1-2-3 along the top, always visible:
+//   1. Customer  — big button until one is chosen
+//   2. Products  — tap a card (or scan a code) → lands in tray
+//   3. Send      — giant green button in the tray
+// Catalog left, tray right from tablet width up; on phones the
+// tray is a full-screen sheet opened from a sticky bottom bar.
 // ============================================================
 
 export function PosScreen() {
@@ -55,7 +54,11 @@ export function PosScreen() {
   const stopAppend = useCartStore((state) => state.stopAppend);
   const clearCart = useCartStore((state) => state.clearCart);
 
-  const lineCount = items.length;
+  const filled = items.filter((item) => item.quantityBoxes > 0 || item.quantityItems > 0);
+  const totalPcs = filled.reduce(
+    (sum, item) => sum + item.quantityBoxes * Math.max(1, item.piecesPerBox) + item.quantityItems,
+    0
+  );
 
   // -- UI state --
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
@@ -82,10 +85,7 @@ export function PosScreen() {
 
   const submitTicket = async () => {
     // 0/0 lines are drafts — never submitted.
-    const placeable = items.filter(
-      (item) => item.quantityBoxes > 0 || item.quantityItems > 0
-    );
-    if (placeable.length === 0 || placing) return;
+    if (filled.length === 0 || placing) return;
 
     if (!appendOrderId && !customer) {
       toast.warning(t("customer.required"));
@@ -97,7 +97,7 @@ export function PosScreen() {
     try {
       const payload = {
         notes: useCartStore.getState().notes ?? undefined,
-        items: placeable.map((item) => ({
+        items: filled.map((item) => ({
           productId: item.productId,
           quantityBoxes: item.quantityBoxes,
           quantityItems: item.quantityItems,
@@ -133,68 +133,77 @@ export function PosScreen() {
   // SECTION: Render
   // ============================================================
 
+  const customerDone = Boolean(appendOrderId || customer);
+  const productsDone = filled.length > 0;
+
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
-      {/* -- Customer banner: step 1 of the flow -- */}
-      <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2">
-        <span
-          aria-hidden
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary"
-        >
-          <UserRound className="h-5 w-5" />
-        </span>
-        {customer ? (
-          <>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold">{customer.name}</p>
-              <p className="-mt-0.5 text-xs text-on-surface-muted">
-                {t("customer.select")}
-              </p>
-            </div>
+    <div className="relative flex h-full flex-col">
+      {/* ============================================================
+          SECTION: Step bar — 1 Customer · 2 Products · 3 Send
+          ============================================================ */}
+      <div className="shrink-0 border-b border-border bg-surface px-3 py-2.5 sm:px-4 short:py-1">
+        {appendOrderId ? (
+          <div className="flex items-center justify-between gap-3 rounded-2xl bg-primary-soft px-4 py-2.5 short:min-h-11 short:py-1">
+            <span className="font-semibold text-primary">
+              {t("pos.appendBanner", { number: appendOrderLabel ?? "" })}
+            </span>
             <Button
-              variant="secondary"
+              variant="ghost"
               size="sm"
-              onClick={() => setCustomerPickerOpen(true)}
+              onClick={() => {
+                stopAppend();
+                setDrawerOpen(false);
+              }}
             >
-              {t("customer.change")}
+              <X className="h-4 w-4" />
+              {t("pos.stopAppend")}
             </Button>
-          </>
+          </div>
         ) : (
-          <>
-            <p className="flex-1 font-medium text-on-surface-muted">
-              {t("customer.noneSelected")}
-            </p>
-            <Button onClick={() => setCustomerPickerOpen(true)}>
-              <UserRound className="h-5 w-5" />
-              {t("customer.select")}
-            </Button>
-          </>
+          <div className="flex items-stretch gap-2">
+            {/* Step 1 — the customer, as one big button */}
+            <button
+              type="button"
+              onClick={() => setCustomerPickerOpen(true)}
+              className={cn(
+                "flex min-h-14 short:min-h-11 min-w-0 flex-1 items-center gap-3 rounded-2xl border-2 px-3 text-left transition-colors md:max-w-md",
+                customer
+                  ? "border-border bg-surface-container-low hover:border-primary"
+                  : "animate-soft-pulse border-primary bg-primary-soft hover:bg-primary/20"
+              )}
+            >
+              <StepDot n={1} done={customerDone} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-bold uppercase tracking-wider text-on-surface-muted">
+                  {customer ? t("customer.forLabel") : t("customer.chooseFirst")}
+                </span>
+                <span className={cn("block truncate font-bold", customer ? "text-lg" : "text-base text-primary")}>
+                  {customer ? customer.name : t("customer.tapToChoose")}
+                </span>
+              </span>
+              {customer ? (
+                <span className="shrink-0 rounded-lg bg-surface-container-high px-2.5 py-1 text-sm font-semibold">
+                  {t("customer.change")}
+                </span>
+              ) : (
+                <UserRound className="h-6 w-6 shrink-0 text-primary" aria-hidden />
+              )}
+            </button>
+
+            {/* Steps 2 & 3 — progress hints (wide screens only) */}
+            <div className="hidden items-center gap-2 lg:flex">
+              <ChevronRight className="h-5 w-5 text-on-surface-muted" aria-hidden />
+              <StepChip n={2} done={productsDone} label={t("pos.stepProducts")} />
+              <ChevronRight className="h-5 w-5 text-on-surface-muted" aria-hidden />
+              <StepChip n={3} done={false} label={t("pos.stepSend")} />
+            </div>
+          </div>
         )}
       </div>
 
-      {/* -- Append-round banner -- */}
-      {appendOrderId && (
-        <div className="flex items-center justify-between gap-3 border-b border-border bg-primary-soft px-4 py-2 text-sm">
-          <span className="font-medium text-primary">
-            {t("pos.appendBanner", { number: appendOrderLabel ?? "" })}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              stopAppend();
-              setDrawerOpen(false);
-            }}
-          >
-            <X className="h-4 w-4" />
-            {t("pos.stopAppend")}
-          </Button>
-        </div>
-      )}
-
       <div className="flex min-h-0 flex-1">
-        {/* -- Left: catalog ledger -- */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Products">
+        {/* -- Left: catalog -- */}
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={t("pos.stepProducts")}>
           <ProductGrid
             products={products}
             categories={categories ?? []}
@@ -204,43 +213,50 @@ export function PosScreen() {
         </section>
 
         {/* -- Right: order tray — ALWAYS visible from tablet up -- */}
-        <aside className="hidden w-72 shrink-0 flex-col overflow-hidden border-l border-border p-3 lg:w-80 lg:p-4 xl:w-96 md:flex">
-          <CartPanel placing={placing} onSubmit={submitTicket} />
+        <aside className="hidden shrink-0 flex-col overflow-hidden border-l border-border bg-surface-container-lowest p-3 md:flex md:w-[clamp(15rem,34%,20rem)] lg:w-[clamp(18rem,30%,24rem)] 2xl:w-[28rem]">
+          <CartPanel
+            placing={placing}
+            onSubmit={submitTicket}
+            onPickCustomer={() => setCustomerPickerOpen(true)}
+          />
         </aside>
       </div>
 
-      {/* -- Phones only: floating tray bar → drawer -- */}
-      <button
-        onClick={() => setDrawerOpen(true)}
-        disabled={lineCount === 0 && !appendOrderId}
-        className={cn(
-          "fixed bottom-20 right-4 z-30 flex items-center gap-3 rounded-2xl bg-primary px-6 py-5 text-lg font-bold text-on-primary shadow-pop transition-opacity md:hidden",
-          lineCount === 0 && !appendOrderId && "pointer-events-none opacity-0"
-        )}
-        aria-label={`${lineCount} ${t("common.items")}`}
-      >
-        <ReceiptText className="h-6 w-6" />
-        <span>{lineCount}</span>
-      </button>
+      {/* -- Phones: sticky tray bar → full-screen sheet -- */}
+      <div className="shrink-0 border-t border-border bg-surface p-2 md:hidden kbd-open:hidden short:p-1">
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          className={cn(
+            "flex h-14 short:h-12 w-full items-center gap-3 rounded-2xl px-4 font-bold transition-colors",
+            productsDone ? "bg-success text-white" : "bg-surface-container-high text-on-surface-muted"
+          )}
+        >
+          <ReceiptText className="h-6 w-6 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left">
+            {productsDone
+              ? t("pos.trayCount", { count: filled.length, pcs: totalPcs })
+              : t("pos.cartEmpty")}
+          </span>
+          <span className="flex shrink-0 items-center gap-1 text-sm">
+            {t("pos.viewTray")}
+            <ChevronRight className="h-5 w-5" />
+          </span>
+        </button>
+      </div>
 
-      {/* Tray drawer (phones only) */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-40 flex justify-end bg-black/50 md:hidden">
-          <div className="scrollbar-thin flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto bg-surface p-3 shadow-pop">
-            <CartPanel
-              placing={placing}
-              onSubmit={submitTicket}
-              onClose={() => setDrawerOpen(false)}
-            />
-          </div>
+        <div className="fixed inset-0 z-40 flex flex-col bg-background pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] md:hidden">
+          <CartPanel
+            placing={placing}
+            onSubmit={submitTicket}
+            onPickCustomer={() => setCustomerPickerOpen(true)}
+            onClose={() => setDrawerOpen(false)}
+          />
         </div>
       )}
 
-      {/* Customer picker (step 1) */}
-      <CustomerPicker
-        open={customerPickerOpen}
-        onClose={() => setCustomerPickerOpen(false)}
-      />
+      <CustomerPicker open={customerPickerOpen} onClose={() => setCustomerPickerOpen(false)} />
 
       {/* First-load spinner (catalog) */}
       {!products && (
@@ -249,5 +265,40 @@ export function PosScreen() {
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// SECTION: Step indicators
+// ============================================================
+
+function StepDot({ n, done }: { n: number; done: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-bold",
+        done ? "bg-success text-white" : "bg-primary text-on-primary"
+      )}
+    >
+      {done ? <Check className="h-5 w-5" /> : n}
+    </span>
+  );
+}
+
+function StepChip({ n, done, label }: { n: number; done: boolean; label: string }) {
+  return (
+    <span className="flex items-center gap-2 rounded-full bg-surface-container-low py-1 pl-1 pr-3.5 text-sm font-semibold">
+      <span
+        aria-hidden
+        className={cn(
+          "flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold",
+          done ? "bg-success text-white" : "bg-surface-container-highest text-on-surface-muted"
+        )}
+      >
+        {done ? <Check className="h-4 w-4" /> : n}
+      </span>
+      {label}
+    </span>
   );
 }

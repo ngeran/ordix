@@ -17,18 +17,21 @@ import {
   canChangeItem,
   canSendItem,
   canCompleteItem,
-  allItemsProduced,
 } from "@/lib/order-status";
-import { getOrder, getOrderDetail, recalculateOrderTotal, returnOrderIfAllProduced } from "@/lib/order-service";
+import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-service";
 
 // ============================================================
 // SECTION: Item actions — production clicks + edits
 // ------------------------------------------------------------
-//   send_to_production : pending   → in_production  (manager click 1)
-//   complete_production: in_production → completed   (manager click 2)
+//   send_to_production : pending   → in_production  (manager "Start")
+//   complete_production: in_production → completed   (manager "Mark done")
+//   undo_production    : one step back, for mis-taps
 //   void               : only while still pending (audit trail)
 // Sending the first item auto-advances a "placed" order to
 // in_production so the boards stay truthful without a second tap.
+// Finishing the LAST item does NOT move the order: the manager
+// taps "Order complete" (POST /status) so the hand-off to the
+// front desk is a deliberate, visible step.
 // Build-to-order: voids never touch stock — nothing was deducted.
 // ============================================================
 
@@ -139,6 +142,12 @@ export async function POST(
     // SECTION: Send to production (pending → in_production)
     // ============================================================
     if (input.action === "send_to_production") {
+      if (item.status !== "active" || item.productionStatus !== "pending") {
+        return NextResponse.json(
+          { error: "Item has already been started" },
+          { status: 409 }
+        );
+      }
       if (!canSendItem(order.status)) {
         return NextResponse.json(
           { error: `Items cannot be sent to production while the order is ${order.status}` },
@@ -202,6 +211,12 @@ export async function POST(
     // SECTION: Complete production (in_production → completed)
     // ============================================================
     if (input.action === "complete_production") {
+      if (item.status !== "active" || item.productionStatus !== "in_production") {
+        return NextResponse.json(
+          { error: "Only items being made can be marked done" },
+          { status: 409 }
+        );
+      }
       if (!canCompleteItem(order.status)) {
         return NextResponse.json(
           { error: `Items cannot be completed while the order is ${order.status}` },
@@ -229,8 +244,57 @@ export async function POST(
           }),
         ])
       );
-      // Every item produced → hand the order back to the department.
-      await returnOrderIfAllProduced(db, orderId, user.id);
+      const detail = await getOrderDetail(db, orderId);
+      return NextResponse.json(detail);
+    }
+
+    // ============================================================
+    // SECTION: Undo (completed → in_production → pending)
+    // ============================================================
+    if (input.action === "undo_production") {
+      if (!canCompleteItem(order.status) || item.status !== "active") {
+        return NextResponse.json(
+          { error: `Items cannot be changed while the order is ${order.status}` },
+          { status: 409 }
+        );
+      }
+      if (item.productionStatus === "pending") {
+        return NextResponse.json(
+          { error: "Item has not been started" },
+          { status: 409 }
+        );
+      }
+      const backToPending = item.productionStatus === "in_production";
+      await db.batch(
+        asBatch([
+          db
+            .update(orderItems)
+            .set(
+              backToPending
+                ? {
+                    productionStatus: "pending",
+                    sentToProductionAt: null,
+                    sentToProductionById: null,
+                  }
+                : {
+                    productionStatus: "in_production",
+                    productionCompletedAt: null,
+                    productionCompletedById: null,
+                  }
+            )
+            .where(eq(orderItems.id, itemId)),
+          db.insert(orderEvents).values({
+            id: crypto.randomUUID(),
+            orderId,
+            fromStatus: order.status,
+            toStatus: order.status,
+            userId: user.id,
+            note: backToPending
+              ? `Undo start: ${item.name}`
+              : `Undo done: ${item.name}`,
+          }),
+        ])
+      );
       const detail = await getOrderDetail(db, orderId);
       return NextResponse.json(detail);
     }

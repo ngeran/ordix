@@ -41,6 +41,25 @@ Runs on phones, tablets and desktops (any orientation), fully installable as a *
 | Icons | lucide-react |
 | PWA | hand-rolled manifest + service worker (no dependencies) |
 
+### Supported devices & browsers
+
+Built touch-first for **tablets in either orientation** (iPad, Android), and equally usable on phones, laptops and large monitors.
+
+| Platform | Minimum |
+|---|---|
+| iPad / iPhone (Safari, or the installed home-screen app) | **iPadOS / iOS 16.4+** |
+| Android tablets & phones (Chrome, Samsung Internet, Edge) | Chrome 111+ (any Android with an up-to-date browser) |
+| Windows / macOS / Linux | Chrome / Edge 111+, Safari 16.4+, Firefox 128+ |
+
+These minimums come from Tailwind CSS v4 (cascade layers, `color-mix()`, `@property`); older browsers render unstyled. Viewport heights fall back from `dvh` to `vh` automatically.
+
+**How the layout adapts:**
+- **Width:** phones get a top bar plus bottom tabs. From 768px (tablets, landscape phones, desktops) a sidebar takes over: an icon rail with captions below 1280px, expanded above. Lists and boards add columns as space grows, up to 110rem.
+- **Height:** short screens (≤ 540px: phones in landscape, split view) compact the chrome. Narrow landscape phones get the icon rail instead of the top and bottom bars.
+- **On-screen keyboard:** bottom bars hide, dialogs fit the visible area and dock to the top, so the field being typed in stays visible (also on iPad, where Safari doesn't resize the page).
+- **Notches & home indicator:** safe-area insets are respected in the shell, dialogs, toasts and the wall display.
+- **Installing:** Chrome, Edge and Android show **Install app**. On iPad and iPhone the same button explains *Share → Add to Home Screen*.
+
 ### Why Workers instead of "Pages"?
 Cloudflare now directs full-stack frameworks to **Workers with static assets** (Pages' engine, same network, same pricing, better Next.js support). Deploys work exactly like Pages: connect the GitHub repo or run `npm run deploy`. Everything below calls it "Cloudflare".
 
@@ -74,10 +93,12 @@ Open **http://localhost:3000** — or **http://<your-ip>:3000** from any device 
 
 ### Default credentials (seeded)
 
-| Role | Email | Password |
+| Role | Username | Password |
 |---|---|---|
-| Admin | `admin@ordix.local` | `admin123` |
-| Staff | `staff@ordix.local` | `staff123` |
+| Admin | `admin` | `admin123` |
+| Staff | `staff` | `staff123` |
+
+(The old `admin@ordix.local` style emails still work in the username box.)
 
 > The seed runs against the **local** D1 (miniflare state in `.wrangler/state/v3`) — the exact same database `next dev` reads through the OpenNext dev proxy. No separate SQLite file, no drift.
 
@@ -171,14 +192,11 @@ The app goes live at `https://ordix.<your-subdomain>.workers.dev`. Secrets persi
 The production database starts **empty** — the demo seed only runs locally, so nobody can log in until you create the first account:
 
 ```bash
-# admin (default role):
-npm run db:create-user -- you@example.com "strong-password" "Your Name"
-
-# additional staff accounts:
-npm run db:create-user -- maria@example.com "strong-password" "Maria" --staff --remote
+# first admin (default role) — username, password, display name:
+npm run db:create-user -- nikos "strong-password" "Nikos" --remote
 ```
 
-(Without `--remote` the script targets your local database. It hashes the password with bcrypt and inserts through wrangler.)
+(Without `--remote` the script targets your local database. It hashes the password with bcrypt and inserts through wrangler.) Everyone else is created in the app: **Admin → Users**.
 
 Then sign in at `/login` and build the real catalog in **Admin → Products / Categories**. Seeded demo products are for local development only — production starts clean on purpose.
 
@@ -403,10 +421,12 @@ This export/apply path is a manual runbook for exceptional setups, not an automa
 
 | Task | How |
 |---|---|
-| Take an order | Home → **New order** → pick customer (or create) → tap products → set κουτιά/τεμάχια + line price € → big green YES |
-| Send items to production | Home → **Production** → tap ▶ on each item (or *Send everything*) |
-| Mark production done | Same screen → tap ✔ per item → then **Production finished** |
-| Collect payment & close | Home → **Cashier** (or the order page) → *Collect & close* → tap method → confirm |
+| Take an order (step 1) | Home → **New order** → tap the customer bar → tap products (or scan a code + Enter) → set boxes/pieces in the tray → **Send to production** → YES |
+| Make it (step 2) | Home → **Production** → **Start** on each item (or *Start all*) → **Mark done** as each finishes (↶ undoes a mis-tap) |
+| Hand it to the front desk | When every item is done the order moves to *Ready to finish* → tap **Order complete — send to front desk** |
+| Close it (step 3) | Home → **Closure** → *Ready for pickup* card → **Close order** → hand over the listed items → YES |
+| Where is an order? | **Orders** → search customer / order / part number → the card shows % done and what happens next |
+| Wall screen | **Wallboard** (sidebar or Home) — fills any TV/tablet, portrait or landscape |
 | Add a customer | Order screen → *Select customer* → *New customer* |
 | Add a product | Admin → Products → *New product* — six fields only |
 | Bulk-import customers/products | Admin → Import (JSON/XML — see below) |
@@ -415,53 +435,31 @@ This export/apply path is a manual runbook for exceptional setups, not an automa
 
 ---
 
-## Importing customers & products (JSON / XML)
+## Users, settings, import & export (admin)
 
-**Admin → Import** — paste or upload a file, run **Check first** (dry run: reports created/updated/errors without touching data), then **Import now**.
+All admin pages live in the **avatar menu** (top right).
 
-**Rules:**
-- prices are written in **euros** (`45.50`) and stored as cents
-- customer updates match by **phone**, else by exact **name**; product updates match by **partNumber** (case-insensitive)
-- `category` is created automatically when missing
-- sample files live in [`samples/`](samples/) — `import-sample.json`, `import-sample.xml`
+**Users** — add people with a **username** (what they type to sign in), a **display name** (shown on orders: *taken by / production by / closed by*), a password and a role (**Admin**: everything; **Staff**: orders, production, closure). Leavers are **deactivated**, not deleted — their order history stays, and their open sessions stop working on the next request. You can't deactivate yourself or remove the last admin.
 
-**JSON shape:**
-```json
-{
-  "customers": [
-    { "name": "Νίκος Παπαδόπουλος", "address": "…", "phone": "697…", "email": "…", "comments": "…" }
-  ],
-  "products": [
-    { "partNumber": "ALU-PRF-4040", "name": "T-Slot Profile 40×40", "category": "Aluminum Profiles",
-      "itemsPerBox": 6, "pricePerBox": 171.00, "pricePerItem": 28.50, "stock": 64, "minStock": 20 }
-  ]
-}
-```
+**Settings** — applies to every device:
+- **Language**: default language (Greek by default) and whether users may switch; when locked, the EN/EL button disappears. Each device's own choice is kept (cookie) and returns when switching is allowed again.
+- **Theme**: each user chooses, or force dark / light (hides the toggle).
+- **Features**: wall display board, offline orders, "Install app" button, full-screen button.
+- **Business**: name + logo — shown in the menu, sign-in page, tab title and exports.
 
-**XML shape:**
-```xml
-<ordix>
-  <customers>
-    <customer>
-      <name>Νίκος Παπαδόπουλος</name>
-      <phone>697…</phone>
-      <address>…</address>
-    </customer>
-  </customers>
-  <products>
-    <product>
-      <partNumber>ALU-PRF-4040</partNumber>
-      <name>T-Slot Profile 40×40</name>
-      <category>Aluminum Profiles</category>
-      <itemsPerBox>6</itemsPerBox>
-      <pricePerBox>171.00</pricePerBox>
-      <pricePerItem>28.50</pricePerItem>
-    </product>
-  </products>
-</ordix>
-```
+**Import** (Admin → Import / Export) — pick **Products, Categories or Customers**, then **JSON or XML**, then choose / drop / paste the file. Each type has a downloadable template and its field list on the page. **Check first** is a dry run (new / updated / unchanged / problem rows, nothing written); **Import now** applies it. Rows with problems are skipped, the rest import.
 
----
+| Type | Matched by | Fields (* required) |
+|---|---|---|
+| Products | `partNumber` (case-insensitive) | `partNumber`*, `name`*, `category` (required for new products — created if missing), `description`, `barcode`, `itemsPerBox` |
+| Categories | `name` (case-insensitive) | `name`*, `nameEl`, `description`, `sortOrder` |
+| Customers | `phone`, else `name` | `name`*, `phone`, `email`, `address`, `comments` |
+
+JSON may be a bare array or `{ "products": [ … ] }`; XML is `<products><product><partNumber>…</partNumber>…</product></products>` (an `<ordix>` root is optional). Products carry no prices or stock — prices are quoted per order line.
+
+**Export** — the **Export orders** tab downloads **completed** orders for a date range (by closing day) as JSON or XML: customer, payment, who took / closed it, totals and line items.
+
+> **Deploying this version:** run `npm run db:migrate:remote` first — migration `0006` adds usernames, user deactivation and the settings table. Existing users get their email's first part as username (`maria@shop.gr` → `maria`).
 
 ## Notes & conventions
 
@@ -469,5 +467,5 @@ This export/apply path is a manual runbook for exceptional setups, not an automa
 - **IDs are UUID strings** (`crypto.randomUUID()`).
 - Timestamps are Drizzle `timestamp` (epoch seconds) columns.
 - Deleting a product that appears in orders or stock history **deactivates** it instead (soft delete) — history stays intact.
-- Login failures are rate-limited per email (5 tries → 30 s lockout, per isolate).
+- Login failures are rate-limited per username (5 tries → 60 s lockout, per isolate).
 - Greek translations cover the full UI; add new strings to both dictionaries in `src/lib/i18n.tsx` (TypeScript enforces it).

@@ -13,6 +13,9 @@ import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/lib/i18n";
+import { businessName } from "@/lib/settings";
+import { useAppSettings } from "@/stores/settings-store";
+import { BrandMark } from "@/components/layout/app-shell";
 
 // ============================================================
 // SECTION: Login screen
@@ -29,7 +32,8 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/order";
 
-  const [email, setEmail] = useState("");
+  const settings = useAppSettings();
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -41,7 +45,7 @@ function LoginForm() {
 
     const result = await signIn("credentials", {
       redirect: false,
-      email: email.trim().toLowerCase(),
+      username: username.trim().toLowerCase(),
       password,
     });
 
@@ -56,29 +60,35 @@ function LoginForm() {
   };
 
   return (
-    <Card className="w-full max-w-sm p-6 sm:p-8">
+    <Card className="m-auto w-full max-w-sm p-6 short:p-5 sm:p-8">
       {/* Brand */}
-      <div className="mb-6 flex flex-col items-center gap-2 text-center">
-        <span
-          aria-hidden
-          className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-2xl font-black text-on-primary"
-        >
-          O
-        </span>
+      <div className="mb-6 flex flex-col items-center gap-2 text-center short:mb-4">
+        <BrandMark
+          name={businessName(settings)}
+          logoUrl={settings.business.logoUrl}
+          className="h-14 w-14 rounded-2xl text-2xl"
+        />
+        {settings.business.name && (
+          <p className="text-sm font-semibold text-on-surface-muted">{settings.business.name}</p>
+        )}
         <h1 className="text-2xl font-bold">{t("login.title")}</h1>
         <p className="text-sm text-on-surface-muted">{t("login.subtitle")}</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <Field label={t("login.email")} htmlFor="email">
+      {/* method="post": a submit before hydration must never put the
+          password into the URL (GET is the browser default). */}
+      <form method="post" onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <Field label={t("login.username")} htmlFor="username">
           <Input
-            id="email"
-            type="email"
-            autoComplete="email"
-            inputMode="email"
+            id="username"
+            type="text"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
             aria-invalid={Boolean(error)}
             className="h-14 text-lg"
           />
@@ -126,7 +136,10 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-background p-4">
+    // m-auto centering (not items-center): a card taller than the
+    // screen — phone landscape, Android with the keyboard up — stays
+    // fully scrollable instead of being cut off at the top.
+    <div className="flex h-app overflow-y-auto bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
       {/* Suspense boundary: useSearchParams inside the form requires it
           during static prerendering of the page shell. */}
       <Suspense fallback={null}>

@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useEffect, useState } from "react";
-import { Search, UserPlus, UserRound } from "lucide-react";
+import { Clock, Search, UserPlus, UserRound, X } from "lucide-react";
 import type { Customer } from "@/db/schema";
 import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
@@ -22,11 +22,35 @@ import { EmptyState } from "@/components/ui/empty-state";
 // ============================================================
 // SECTION: Customer picker — order step 1
 // ------------------------------------------------------------
-// Dialog flow: search (name/phone) → tap a row to select. If the
-// customer doesn't exist, "Νέος πελάτης" opens a second dialog
-// with the five fields; saving selects the new customer straight
-// away so the order taker never loses their place.
+// Dialog flow: search (name/phone) → tap a row to select. The
+// last few customers chosen on this device sit on top as big
+// "Recent" chips (most orders are repeat customers). If the
+// customer doesn't exist, "New customer" opens a second dialog
+// pre-filled with what was typed; saving selects the new
+// customer straight away so the order taker never loses their
+// place.
 // ============================================================
+
+const RECENT_KEY = "ordix-recent-customers";
+const RECENT_MAX = 6;
+
+function readRecent(): CartCustomer[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    return raw ? (JSON.parse(raw) as CartCustomer[]).slice(0, RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecent(customer: CartCustomer) {
+  try {
+    const next = [customer, ...readRecent().filter((c) => c.id !== customer.id)].slice(0, RECENT_MAX);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    // storage unavailable — recents just won't persist
+  }
+}
 
 export function CustomerPicker({
   open,
@@ -40,6 +64,7 @@ export function CustomerPicker({
 
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [recent, setRecent] = useState<CartCustomer[]>([]);
 
   const { data: customers } = usePolling<Customer[]>(
     `/api/customers?active=true${search.trim() ? `&q=${encodeURIComponent(search.trim())}` : ""}`,
@@ -48,12 +73,16 @@ export function CustomerPicker({
 
   const select = (customer: CartCustomer) => {
     setCustomer(customer);
+    rememberRecent(customer);
     onClose();
   };
 
-  // Reset the search each time the picker opens.
+  // Reset the search and reload recents each time the picker opens.
   useEffect(() => {
-    if (open) setSearch("");
+    if (open) {
+      setSearch("");
+      setRecent(readRecent());
+    }
   }, [open]);
 
   return (
@@ -72,21 +101,56 @@ export function CustomerPicker({
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("customer.search")}
               aria-label={t("common.search")}
-              className="pl-11"
+              className="h-14 pl-11 pr-11 text-lg"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label={t("pos.clearSearch")}
+                className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-on-surface-muted hover:bg-surface-container"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            )}
           </div>
+
+          {/* Recent customers on this device — one tap */}
+          {!search.trim() && recent.length > 0 && (
+            <div>
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-on-surface-muted">
+                <Clock className="h-3.5 w-3.5" aria-hidden />
+                {t("customer.recent")}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {recent.map((customer) => (
+                  <button
+                    key={customer.id}
+                    type="button"
+                    onClick={() => select(customer)}
+                    className="flex h-12 max-w-full items-center gap-2 rounded-full border-2 border-primary/30 bg-primary-soft pl-1.5 pr-4 font-semibold text-primary hover:border-primary"
+                  >
+                    <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-on-primary">
+                      {customer.name.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="truncate">{customer.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {customers === null ? null : customers.length === 0 ? (
             <EmptyState icon={UserRound} title={t("customer.empty")} />
           ) : (
-            <ul className="max-h-72 space-y-1.5 overflow-y-auto scrollbar-thin">
+            <ul className="space-y-1.5">
               {customers.map((customer) => (
                 <li key={customer.id}>
                   <button
                     onClick={() =>
                       select({ id: customer.id, name: customer.name })
                     }
-                    className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left transition-colors hover:border-primary"
+                    className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left transition-colors hover:border-primary"
                   >
                     <span
                       aria-hidden
@@ -123,6 +187,7 @@ export function CustomerPicker({
 
       <NewCustomerDialog
         open={createOpen}
+        initialName={search.trim()}
         onClose={() => setCreateOpen(false)}
         onCreated={select}
       />
@@ -136,10 +201,13 @@ export function CustomerPicker({
 
 function NewCustomerDialog({
   open,
+  initialName,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  /** What was typed in the search box — saves retyping. */
+  initialName: string;
   onClose: () => void;
   onCreated: (customer: CartCustomer) => void;
 }) {
@@ -155,12 +223,14 @@ function NewCustomerDialog({
   // Fresh form every time the dialog opens.
   useEffect(() => {
     if (open) {
-      setName("");
+      setName(/\d/.test(initialName) ? "" : initialName);
+      setPhone(/\d/.test(initialName) ? initialName : "");
       setAddress("");
-      setPhone("");
       setEmail("");
       setComments("");
     }
+    // initialName is read once per opening on purpose
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const submit = async () => {

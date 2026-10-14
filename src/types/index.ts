@@ -32,6 +32,8 @@ export type OrderSummary = Order & {
   /** Active items currently in production. */
   inProductionCount: number;
   createdByName: string | null;
+  /** Who closed it at the front desk (completed orders). */
+  closedByName: string | null;
   /** Active items, attached only when the API is called with include=items. */
   items?: OrderItem[];
 };
@@ -51,6 +53,11 @@ export type OrderDetail = Order & {
   items: OrderItem[];
   events: (Omit<OrderEvent, "userId"> & { userName: string | null })[];
   createdByName: string | null;
+  /** Who closed it at the front desk (completed orders). */
+  closedByName: string | null;
+  /** id → display name for every user referenced by the order
+   *  (item production actors, timeline) — "Done by Kostas". */
+  userNames: Record<string, string>;
   /** Phase 2: the linked customer record, when the order has one. */
   customer: OrderCustomerInfo | null;
 };
@@ -60,6 +67,7 @@ export interface OrdixSessionUser {
   id: string;
   name?: string | null;
   email?: string | null;
+  username: string;
   role: "admin" | "staff";
 }
 

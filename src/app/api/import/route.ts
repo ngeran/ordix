@@ -4,41 +4,68 @@
 
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { getDb } from "@/db";
+import type { BatchItem } from "drizzle-orm/batch";
+import { z } from "zod";
+import { asBatch, getDb } from "@/db";
 import { categories, customers, products } from "@/db/schema";
+import type { Category, Customer, Product } from "@/db/schema";
 import { errorResponse, requireAdmin } from "@/lib/api-auth";
 import { parseJsonBody } from "@/lib/validation";
-import { parseImportFile } from "@/lib/importer";
-import { z } from "zod";
+import {
+  IMPORT_FORMATS,
+  IMPORT_TYPES,
+  parseImportFile,
+  type ImportReport,
+  type ParsedCategory,
+  type ParsedCustomer,
+  type ParsedProduct,
+} from "@/lib/importer";
 
 // ============================================================
-// SECTION: POST /api/import — bulk customers & products (admin)
+// SECTION: POST /api/import — bulk upsert of ONE record type (admin)
 // ------------------------------------------------------------
-// Body: { format: "json" | "xml", content: string, dryRun?: boolean }
+// Body: { type: "products" | "categories" | "customers",
+//         format: "json" | "xml", content: string, dryRun?: boolean }
 //
-// Upsert semantics (documented in src/lib/importer.ts):
-//   customer → matched by phone, else by exact name
-//   product  → matched by partNumber (case-insensitive)
-//   category → created automatically when missing
+// Match-or-create rules are documented in src/lib/importer.ts.
+// Rows with problems are skipped and listed in `errors`; valid
+// rows still import.
 //
 // dryRun=true (default) validates and reports WITHOUT writing —
 // the admin UI always runs a dry run first and shows the report.
+// Writes go out as D1 batches (one round trip per chunk) so large
+// catalogs stay well inside Worker subrequest limits.
 // ============================================================
 
 const importRequestSchema = z.object({
-  format: z.enum(["json", "xml"]),
+  type: z.enum(IMPORT_TYPES),
+  format: z.enum(IMPORT_FORMATS),
   content: z.string().min(2, "Import content is empty"),
   dryRun: z.boolean().default(true),
 });
 
-interface ImportReport {
-  customersCreated: number;
-  customersUpdated: number;
-  productsCreated: number;
-  productsUpdated: number;
-  categoriesCreated: number;
-  errors: string[];
+type Db = Awaited<ReturnType<typeof getDb>>;
+type Statements = BatchItem<"sqlite">[];
+
+const BATCH_SIZE = 50;
+
+const key = (value: string) => value.trim().toLowerCase();
+
+/** Only fields the file actually provided, and only if they differ. */
+function changedFields<Row extends object>(
+  existing: Row,
+  incoming: Partial<Row>
+): Partial<Row> {
+  const changes: Partial<Row> = {};
+  for (const [field, value] of Object.entries(incoming) as [keyof Row, Row[keyof Row]][]) {
+    if (value !== undefined && existing[field] !== value) changes[field] = value;
+  }
+  return changes;
 }
+
+// ============================================================
+// SECTION: Route
+// ============================================================
 
 export async function POST(request: Request) {
   const guard = await requireAdmin();
@@ -47,181 +74,250 @@ export async function POST(request: Request) {
   try {
     const db = await getDb();
     const body = await parseJsonBody(request, importRequestSchema);
-    const parsed = parseImportFile(body.format, body.content);
 
     const report: ImportReport = {
-      customersCreated: 0,
-      customersUpdated: 0,
-      productsCreated: 0,
-      productsUpdated: 0,
+      dryRun: body.dryRun,
+      type: body.type,
+      created: 0,
+      updated: 0,
+      unchanged: 0,
       categoriesCreated: 0,
-      errors: [...parsed.errors],
+      errors: [],
     };
+    const statements: Statements = [];
 
-    // -- Existing rows loaded into maps for match-or-create --
-    const existingCustomers = await db.select().from(customers);
-    const customerByPhone = new Map(
-      existingCustomers
-        .filter((row) => row.phone)
-        .map((row) => [row.phone!.trim().toLowerCase(), row])
-    );
-    const customerByName = new Map(
-      existingCustomers.map((row) => [row.name.trim().toLowerCase(), row])
-    );
-
-    const existingProducts = await db.select().from(products);
-    const productByPart = new Map(
-      existingProducts.map((row) => [row.partNumber.toLowerCase(), row])
-    );
-
-    const existingCategories = await db.select().from(categories);
-    const categoryByName = new Map(
-      existingCategories.map((row) => [row.name.toLowerCase(), row])
-    );
-
-    // Categories are created (never updated) — resolved lazily so a
-    // dry run can count them without writing.
-    const ensureCategory = async (name: string): Promise<string> => {
-      const key = name.trim().toLowerCase();
-      const existing = categoryByName.get(key);
-      if (existing) return existing.id;
-      const id = crypto.randomUUID();
-      if (!body.dryRun) {
-        await db.insert(categories).values({ id, name: name.trim() });
-      }
-      categoryByName.set(key, {
-        id,
-        name: name.trim(),
-        nameEl: null,
-        description: null,
-        sortOrder: 999,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      report.categoriesCreated += 1;
-      return id;
-    };
-
-    // ============================================================
-    // SECTION: Customers — phone match, else name match, else create
-    // ============================================================
-    for (const customer of parsed.customers) {
-      const match =
-        (customer.phone
-          ? customerByPhone.get(customer.phone.toLowerCase())
-          : undefined) ?? customerByName.get(customer.name.toLowerCase());
-
-      if (match) {
-        const changed =
-          match.address !== (customer.address ?? match.address) ||
-          match.email !== (customer.email ?? match.email) ||
-          match.comments !== (customer.comments ?? match.comments) ||
-          (!match.phone && customer.phone);
-        if (changed && !body.dryRun) {
-          await db
-            .update(customers)
-            .set({
-              name: customer.name,
-              address: customer.address ?? match.address,
-              phone: customer.phone ?? match.phone,
-              email: customer.email ?? match.email,
-              comments: customer.comments ?? match.comments,
-              updatedAt: new Date(),
-            })
-            .where(eq(customers.id, match.id));
-        }
-        if (changed) report.customersUpdated += 1;
-        continue;
-      }
-
-      const id = crypto.randomUUID();
-      if (!body.dryRun) {
-        await db.insert(customers).values({
-          id,
-          name: customer.name,
-          address: customer.address ?? null,
-          phone: customer.phone ?? null,
-          email: customer.email ?? null,
-          comments: customer.comments ?? null,
-        });
-      }
-      // Register in maps so duplicates within the file don't double-insert.
-      const registered = {
-        id,
-        name: customer.name,
-        address: customer.address ?? null,
-        phone: customer.phone ?? null,
-        email: customer.email ?? null,
-        comments: customer.comments ?? null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      if (customer.phone)
-        customerByPhone.set(customer.phone.toLowerCase(), registered);
-      customerByName.set(customer.name.toLowerCase(), registered);
-      report.customersCreated += 1;
+    if (body.type === "products") {
+      const parsed = parseImportFile("products", body.format, body.content);
+      report.errors.push(...parsed.errors);
+      await planProducts(db, parsed.rows, report, statements);
+    } else if (body.type === "categories") {
+      const parsed = parseImportFile("categories", body.format, body.content);
+      report.errors.push(...parsed.errors);
+      await planCategories(db, parsed.rows, report, statements);
+    } else {
+      const parsed = parseImportFile("customers", body.format, body.content);
+      report.errors.push(...parsed.errors);
+      await planCustomers(db, parsed.rows, report, statements);
     }
 
-    // ============================================================
-    // SECTION: Products — partNumber match, else create
-    // ============================================================
-    for (const product of parsed.products) {
-      const match = productByPart.get(product.partNumber.toLowerCase());
-
-      if (match) {
-        // Only the display name can drift — everything else about a
-        // product is managed in the admin UI.
-        if (match.name !== product.name && !body.dryRun) {
-          await db
-            .update(products)
-            .set({ name: product.name, updatedAt: new Date() })
-            .where(eq(products.id, match.id));
-        }
-        if (match.name !== product.name) report.productsUpdated += 1;
-        continue;
+    if (!body.dryRun) {
+      for (let start = 0; start < statements.length; start += BATCH_SIZE) {
+        await db.batch(asBatch(statements.slice(start, start + BATCH_SIZE)));
       }
-
-      const categoryId = product.category
-        ? await ensureCategory(product.category)
-        : null;
-      if (!categoryId) {
-        report.errors.push(
-          `Product ${product.partNumber}: no category (field "category" is required for new products)`
-        );
-        continue;
-      }
-
-      const id = crypto.randomUUID();
-      if (!body.dryRun) {
-        await db.insert(products).values({
-          id,
-          partNumber: product.partNumber,
-          name: product.name,
-          categoryId,
-          itemsPerBox: product.itemsPerBox ?? null,
-        });
-      }
-      productByPart.set(product.partNumber.toLowerCase(), {
-        id,
-        partNumber: product.partNumber,
-        name: product.name,
-        categoryId,
-        description: null,
-        imageUrl: null,
-        isActive: true,
-        barcode: null,
-        itemsPerBox: product.itemsPerBox ?? null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      report.productsCreated += 1;
     }
-    // ============================================================
 
-    return NextResponse.json({ dryRun: body.dryRun, ...report });
+    return NextResponse.json(report);
   } catch (error) {
     return errorResponse(error);
+  }
+}
+
+// ============================================================
+// SECTION: Categories — shared lookup (also used by products)
+// ------------------------------------------------------------
+// New categories go to the end of the list (max sortOrder + 1)
+// unless the file says otherwise.
+// ============================================================
+
+async function loadCategories(db: Db) {
+  const rows = await db.select().from(categories);
+  const byName = new Map(rows.map((row) => [key(row.name), row]));
+  let nextSort = rows.reduce((max, row) => Math.max(max, row.sortOrder), 0) + 1;
+  return { byName, takeSortOrder: () => nextSort++ };
+}
+
+function newCategory(name: string, sortOrder: number, extra: Partial<Category> = {}): Category {
+  const now = new Date();
+  return {
+    id: crypto.randomUUID(),
+    name: name.trim(),
+    nameEl: null,
+    description: null,
+    sortOrder,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    ...extra,
+  };
+}
+
+async function planCategories(
+  db: Db,
+  rows: ParsedCategory[],
+  report: ImportReport,
+  statements: Statements
+) {
+  const lookup = await loadCategories(db);
+
+  for (const row of rows) {
+    const match = lookup.byName.get(key(row.name));
+
+    if (!match) {
+      const created = newCategory(row.name, row.sortOrder ?? lookup.takeSortOrder(), {
+        nameEl: row.nameEl ?? null,
+        description: row.description ?? null,
+      });
+      statements.push(db.insert(categories).values(created));
+      lookup.byName.set(key(row.name), created);
+      report.created += 1;
+      continue;
+    }
+
+    const changes = changedFields(match, {
+      nameEl: row.nameEl,
+      description: row.description,
+      sortOrder: row.sortOrder,
+    });
+    if (Object.keys(changes).length === 0) {
+      report.unchanged += 1;
+      continue;
+    }
+    statements.push(
+      db.update(categories).set({ ...changes, updatedAt: new Date() }).where(eq(categories.id, match.id))
+    );
+    Object.assign(match, changes);
+    report.updated += 1;
+  }
+}
+
+// ============================================================
+// SECTION: Products — partNumber match, else create
+// ------------------------------------------------------------
+// Updates apply only the fields present in the file. A new
+// product needs a category (auto-created by name if missing).
+// ============================================================
+
+async function planProducts(
+  db: Db,
+  rows: ParsedProduct[],
+  report: ImportReport,
+  statements: Statements
+) {
+  const lookup = await loadCategories(db);
+  const existing = await db.select().from(products);
+  const byPart = new Map(existing.map((row) => [key(row.partNumber), row]));
+
+  const resolveCategory = (name: string): string => {
+    const found = lookup.byName.get(key(name));
+    if (found) return found.id;
+    const created = newCategory(name, lookup.takeSortOrder());
+    statements.push(db.insert(categories).values(created));
+    lookup.byName.set(key(name), created);
+    report.categoriesCreated += 1;
+    return created.id;
+  };
+
+  rows.forEach((row, index) => {
+    const match = byPart.get(key(row.partNumber));
+
+    if (!match) {
+      if (!row.category) {
+        report.errors.push(
+          `Row ${index + 1} (${row.partNumber}): category is required for new products`
+        );
+        return;
+      }
+      const now = new Date();
+      const created: Product = {
+        id: crypto.randomUUID(),
+        partNumber: row.partNumber,
+        name: row.name,
+        description: row.description ?? null,
+        imageUrl: null,
+        categoryId: resolveCategory(row.category),
+        isActive: true,
+        barcode: row.barcode ?? null,
+        itemsPerBox: row.itemsPerBox ?? null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      statements.push(db.insert(products).values(created));
+      byPart.set(key(row.partNumber), created);
+      report.created += 1;
+      return;
+    }
+
+    const changes = changedFields(match, {
+      name: row.name,
+      description: row.description,
+      barcode: row.barcode,
+      itemsPerBox: row.itemsPerBox,
+      categoryId: row.category ? resolveCategory(row.category) : undefined,
+    });
+    if (Object.keys(changes).length === 0) {
+      report.unchanged += 1;
+      return;
+    }
+    statements.push(
+      db.update(products).set({ ...changes, updatedAt: new Date() }).where(eq(products.id, match.id))
+    );
+    Object.assign(match, changes);
+    report.updated += 1;
+  });
+}
+
+// ============================================================
+// SECTION: Customers — phone match, else name match, else create
+// ============================================================
+
+async function planCustomers(
+  db: Db,
+  rows: ParsedCustomer[],
+  report: ImportReport,
+  statements: Statements
+) {
+  const existing = await db.select().from(customers);
+  const byPhone = new Map(
+    existing.filter((row) => row.phone).map((row) => [key(row.phone!), row])
+  );
+  const byName = new Map(existing.map((row) => [key(row.name), row]));
+
+  // Registered in both maps so duplicates within the file update
+  // the earlier row instead of inserting twice.
+  const remember = (row: Customer) => {
+    if (row.phone) byPhone.set(key(row.phone), row);
+    byName.set(key(row.name), row);
+  };
+
+  for (const row of rows) {
+    const match =
+      (row.phone ? byPhone.get(key(row.phone)) : undefined) ?? byName.get(key(row.name));
+
+    if (!match) {
+      const now = new Date();
+      const created: Customer = {
+        id: crypto.randomUUID(),
+        name: row.name,
+        address: row.address ?? null,
+        phone: row.phone ?? null,
+        email: row.email ?? null,
+        comments: row.comments ?? null,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      statements.push(db.insert(customers).values(created));
+      remember(created);
+      report.created += 1;
+      continue;
+    }
+
+    const changes = changedFields(match, {
+      name: row.name,
+      address: row.address,
+      phone: row.phone,
+      email: row.email,
+      comments: row.comments,
+    });
+    if (Object.keys(changes).length === 0) {
+      report.unchanged += 1;
+      continue;
+    }
+    statements.push(
+      db.update(customers).set({ ...changes, updatedAt: new Date() }).where(eq(customers.id, match.id))
+    );
+    Object.assign(match, changes);
+    remember(match);
+    report.updated += 1;
   }
 }
