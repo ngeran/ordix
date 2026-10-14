@@ -89,6 +89,14 @@ export async function POST(
       updatedAt: new Date(),
     };
     if (timestampColumn) orderUpdate[timestampColumn] = new Date();
+    // Production clock starts when the order first enters
+    // in_production (from placed or a resume from hold).
+    if (
+      targetStatus === "in_production" &&
+      !order.productionStartedAt
+    ) {
+      orderUpdate.productionStartedAt = new Date();
+    }
     if (targetStatus === "cancelled") {
       orderUpdate.cancelledById = user.id;
       orderUpdate.cancelReason = input.note ?? null;

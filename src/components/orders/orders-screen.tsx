@@ -6,186 +6,207 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ClipboardList, Plus } from "lucide-react";
+import { Clock, Plus, ReceiptText } from "lucide-react";
 import type { OrderStatus } from "@/db/schema";
 import type { OrderSummary } from "@/types";
-import { ORDER_MAIN_FLOW, STATUS_META } from "@/lib/order-status";
+import { STATUS_META } from "@/lib/order-status";
 import { usePolling } from "@/lib/use-polling";
-import { useLocale, useT } from "@/lib/i18n";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import { LoadingArea } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/orders/status-badge";
 
 // ============================================================
-// SECTION: Orders screen — active board + history
+// SECTION: Orders screen — simplified floor dashboard
 // ------------------------------------------------------------
-// Active tab: live board of in-flight orders (5 s poll). Every
-// card links to the detail page; the status filter chips narrow
-// the board. History tab: finished/cancelled orders with a
-// status select + date filter (15 s poll).
+// Per the order-terminal mockup: one dense TABLE of active
+// orders (Order ID · Stage pill · Time in Queue · Time in
+// Production), simple filter pills, and one prominent
+// + New Order button. Rows link to the order detail.
 // ============================================================
 
-type Tab = "active" | "history";
+type Filter = "all" | "queue" | "production";
+
+/** "26m" / "1h 13m" / "2d 3h" — compact age for board columns. */
+function formatAge(since: Date | string | null): string {
+  if (!since) return "—";
+  const minutes = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(since).getTime()) / 60_000)
+  );
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
 
 export function OrdersScreen() {
   const t = useT();
-  const locale = useLocale();
 
-  const [tab, setTab] = useState<Tab>("active");
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
-  const [dateFilter, setDateFilter] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
 
-  // -- Build the query for the current tab + filters --
-  const url = (() => {
-    const params = new URLSearchParams({ scope: tab });
-    if (statusFilter) params.set("status", statusFilter);
-    if (dateFilter) params.set("date", dateFilter);
-    return `/api/orders?${params.toString()}`;
-  })();
+  const { data: activeOrders, isStale } = usePolling<OrderSummary[]>(
+    "/api/orders?scope=active",
+    { intervalMs: 5_000 }
+  );
 
-  const { data: orders, isStale } = usePolling<OrderSummary[]>(url, {
-    intervalMs: tab === "active" ? 5_000 : 15_000,
-  });
+  const queueOrders = (activeOrders ?? []).filter(
+    (order) => order.status === "placed"
+  );
+  const productionOrders = (activeOrders ?? []).filter(
+    (order) => order.status === "in_production"
+  );
+
+  const visible =
+    filter === "queue"
+      ? queueOrders
+      : filter === "production"
+        ? productionOrders
+        : (activeOrders ?? []);
+
+  const pills: Array<{ key: Filter; label: string; count: number }> = [
+    { key: "all", label: t("common.all"), count: (activeOrders ?? []).length },
+    { key: "queue", label: t("orders.newInQueue"), count: queueOrders.length },
+    {
+      key: "production",
+      label: t("orders.inProductionPill"),
+      count: productionOrders.length,
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-4">
       {/* ============================================================
-          SECTION: Header — title, tab switch, new order
+          SECTION: Header — title, live pill, filters, + New Order
           ============================================================ */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">{t("orders.title")}</h1>
-        <div className="flex items-center gap-2">
-          {/* Tab switch */}
-          <div
-            className="flex rounded-xl bg-surface-container p-1"
-            role="tablist"
-            aria-label={t("orders.title")}
-          >
-            {(["active", "history"] as const).map((value) => (
+      <div className="mb-4 flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-extrabold tracking-tight text-on-surface">
+              {t("orders.title")}
+            </h1>
+            <span className="rounded-full bg-surface-container-highest px-3 py-1 text-xs font-bold text-primary">
+              {t("orders.liveFlow")}
+            </span>
+          </div>
+          <p className="text-sm text-on-surface-muted">{t("orders.floorDispatch")}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end">
+          {/* Filter pills */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-border bg-surface-container-lowest p-1.5">
+            {pills.map((pill) => (
               <button
-                key={value}
-                role="tab"
-                aria-selected={tab === value}
-                onClick={() => setTab(value)}
+                key={pill.key}
+                onClick={() => setFilter(pill.key)}
+                aria-pressed={filter === pill.key}
                 className={cn(
-                  "h-10 rounded-lg px-4 text-sm font-semibold transition-colors",
-                  tab === value
-                    ? "bg-surface text-on-surface shadow-card"
-                    : "text-on-surface-muted"
+                  "rounded-lg px-4 py-2 text-sm transition-all",
+                  filter === pill.key
+                    ? "bg-primary font-bold text-on-primary shadow-md"
+                    : "text-on-surface-muted hover:bg-surface-container hover:text-on-surface"
                 )}
               >
-                {value === "active" ? t("orders.activeTab") : t("orders.historyTab")}
+                {pill.label} ({pill.count})
               </button>
             ))}
           </div>
-          <Link href="/order">
-            <Button size="icon" aria-label={t("nav.order")}>
+
+          {/* Prominent New Order button */}
+          <Link href="/order" className="shrink-0">
+            <Button variant="success" size="lg" className="text-base font-bold">
               <Plus className="h-5 w-5" />
+              {t("orders.newOrder")}
             </Button>
           </Link>
         </div>
       </div>
 
       {/* ============================================================
-          SECTION: Filters
+          SECTION: Active order table
           ============================================================ */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value as OrderStatus | "")}
-          aria-label={t("orders.filterAll")}
-          className="w-48"
-        >
-          <option value="">{t("orders.filterAll")}</option>
-          {ORDER_MAIN_FLOW.map((status) => (
-            <option key={status} value={status}>
-              {STATUS_META[status][locale]}
-            </option>
-          ))}
-          <option value="on_hold">{STATUS_META.on_hold[locale]}</option>
-          <option value="cancelled">{STATUS_META.cancelled[locale]}</option>
-        </Select>
-        {tab === "history" && (
-          <Input
-            type="date"
-            value={dateFilter}
-            onChange={(event) => setDateFilter(event.target.value)}
-            aria-label={t("orders.today")}
-            className="w-44"
-          />
-        )}
-        {isStale && (
-          <span className="text-xs text-warning">{t("orders.staleData")}</span>
-        )}
-      </div>
-
-      {/* ============================================================
-          SECTION: Order cards
-          ============================================================ */}
-      {orders === null ? (
-        <LoadingArea label={t("common.loading")} />
-      ) : orders.length === 0 ? (
-        <EmptyState
-          icon={ClipboardList}
-          title={t("orders.empty")}
-          hint={t("orders.emptyHint")}
-        />
-      ) : (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {orders.map((order) => (
-            <OrderCard key={order.id} order={order} locale={locale} />
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-// ============================================================
-// SECTION: Order card
-// ------------------------------------------------------------
-// Whole card is a link to the detail page; content mirrors what
-// the warehouse asks first: number, status, age, what's inside.
-// ============================================================
-
-function OrderCard({
-  order,
-  locale,
-}: {
-  order: OrderSummary;
-  locale: "en" | "el";
-}) {
-  const t = useT();
-
-  return (
-    <li>
-      <Link
-        href={`/orders/${order.id}`}
-        className="flex h-full flex-col gap-2 rounded-2xl border border-border bg-surface p-4 shadow-card transition-all hover:border-primary hover:shadow-pop"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono font-bold">{order.orderNumber}</span>
-          <StatusBadge status={order.status} />
-        </div>
-
-        <p className="text-sm text-on-surface-muted">
-          {formatRelativeTime(order.placedAt, locale)}
-          {order.customerName ? ` · ${order.customerName}` : ""}
-          {order.createdByName
-            ? ` · ${t("detail.createdBy", { name: order.createdByName })}`
-            : ""}
-        </p>
-
-        <div className="mt-auto flex items-center justify-between pt-1 text-sm">
-          <span className="text-on-surface-muted">
-            {order.itemCount} {t("common.items")} · {order.totalUnits} {t("common.units")}
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface-container-lowest shadow-card">
+        <div className="flex items-center justify-between border-b border-border bg-surface-container-low px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="h-3 w-3 rounded-full bg-primary shadow-[0_0_8px_rgba(99,102,241,0.6)]"
+            />
+            <h2 className="text-base font-bold uppercase tracking-wide text-on-surface">
+              {t("orders.activeTab")}
+            </h2>
+          </div>
+          <span className="rounded bg-surface-container px-2 py-0.5 text-xs font-bold text-on-surface">
+            {visible.length} {t("orders.title")}
           </span>
         </div>
-      </Link>
-    </li>
+
+        {activeOrders === null ? (
+          <LoadingArea label={t("common.loading")} />
+        ) : visible.length === 0 ? (
+          <EmptyState icon={ReceiptText} title={t("orders.empty")} hint={t("orders.emptyHint")} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left">
+              <thead className="border-b border-border bg-surface-container-low/60 text-xs font-semibold uppercase tracking-wider text-on-surface-muted">
+                <tr>
+                  <th className="px-4 py-3">{t("orders.tableOrder")}</th>
+                  <th className="px-4 py-3">{t("orders.tableStage")}</th>
+                  <th className="px-4 py-3">{t("orders.tableQueueTime")}</th>
+                  <th className="px-4 py-3">{t("orders.tableProdTime")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {visible.map((order) => (
+                  <tr
+                    key={order.id}
+                    className="min-h-14 transition-colors hover:bg-surface-container"
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/orders/${order.id}`}
+                        className="flex items-center gap-2 text-base font-extrabold tracking-tight text-on-surface hover:text-primary"
+                      >
+                        <ReceiptText
+                          className="h-5 w-5 text-on-surface-muted"
+                          aria-hidden
+                        />
+                        {order.orderNumber}
+                      </Link>
+                      {order.customerName && (
+                        <span className="mt-0.5 block truncate text-xs text-on-surface-muted">
+                          {order.customerName}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={order.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="flex items-center gap-2 font-bold text-primary">
+                        <Clock className="h-4 w-4" aria-hidden />
+                        {formatAge(order.placedAt)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {order.productionStartedAt ? (
+                        <span className="font-bold text-warning">
+                          {formatAge(order.productionStartedAt)}
+                        </span>
+                      ) : (
+                        <span className="text-on-surface-muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

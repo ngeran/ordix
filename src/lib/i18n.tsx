@@ -114,6 +114,16 @@ const en = {
   "orders.clearFilters": "Clear filters",
   "orders.progress": "{done}/{count} produced",
   "orders.updated": "Live · updated {time}",
+  "orders.liveFlow": "Live Flow",
+  "orders.floorDispatch": "Floor dispatch and production monitor",
+  "orders.newOrder": "New Order",
+  "orders.tableOrder": "Order ID",
+  "orders.tableStage": "Stage / Status",
+  "orders.tableQueueTime": "Time in Queue",
+  "orders.tableProdTime": "Time in Production",
+  "orders.newInQueue": "New in Queue",
+  "orders.inProductionPill": "In Production",
+  "orders.queuePill": "Queue",
 
   // -- Order detail --
   "detail.title": "Order {number}",
@@ -397,6 +407,16 @@ const el: Record<MessageKey, string> = {
   "orders.clearFilters": "Καθαρισμός φίλτρων",
   "orders.progress": "{done}/{count} παραχθήκαν",
   "orders.updated": "Ζωντανά · ενημερώθηκε {time}",
+  "orders.liveFlow": "Ζωντανή ροή",
+  "orders.floorDispatch": "Εκτίμηση ροής και παρακολούθηση παραγωγής",
+  "orders.newOrder": "Νέα Παραγγελία",
+  "orders.tableOrder": "Αριθμός",
+  "orders.tableStage": "Στάδιο / Κατάσταση",
+  "orders.tableQueueTime": "Ώρα στην Ουρά",
+  "orders.tableProdTime": "Ώρα σε Παραγωγή",
+  "orders.newInQueue": "Νέες στην Ουρά",
+  "orders.inProductionPill": "Σε Παραγωγή",
+  "orders.queuePill": "Ουρά",
 
   // -- Order detail --
   "detail.title": "Παραγγελία {number}",

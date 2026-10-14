@@ -157,12 +157,17 @@ export async function POST(
           .where(eq(orderItems.id, itemId)),
       ];
 
-      // First click moves the whole order out of "placed".
+      // First click moves the whole order out of "placed" and
+      // starts the production clock (board timers read this).
       if (order.status === "placed") {
         statements.push(
           db
             .update(orders)
-            .set({ status: "in_production", updatedAt: now })
+            .set({
+              status: "in_production",
+              productionStartedAt: now,
+              updatedAt: now,
+            })
             .where(eq(orders.id, orderId))
         );
         statements.push(

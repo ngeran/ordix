@@ -198,6 +198,8 @@ export const orders = sqliteTable(
     placedAt: integer("placed_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
+    /** When the order entered in_production (drives board timers). */
+    productionStartedAt: integer("production_started_at", { mode: "timestamp" }),
     preparingAt: integer("preparing_at", { mode: "timestamp" }),
     preparedAt: integer("prepared_at", { mode: "timestamp" }),
     boxedAt: integer("boxed_at", { mode: "timestamp" }),
