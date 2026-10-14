@@ -159,7 +159,11 @@ export async function POST(
         fromStatus: order.status,
         toStatus: targetStatus,
         userId: user.id,
-        note: input.note ?? null,
+        note:
+          input.note ??
+          (targetStatus === "production_complete"
+            ? "Order complete — sent to the front desk"
+            : null),
       })
     );
 

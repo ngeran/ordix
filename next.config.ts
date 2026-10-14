@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
   // Don't advertise the framework in response headers.
   poweredByHeader: false,
 
+  // `next dev` only: tablets on the LAN open the dev server as
+  // http://<this-machine's-ip>:3000. Next 16 blocks its dev assets for
+  // any origin not listed here, so the page never hydrated (taps did
+  // nothing, sign-in looped back to /login). Private ranges only;
+  // production builds ignore this setting.
+  allowedDevOrigins: ["10.*.*.*", "192.168.*.*", "172.*.*.*", "*.local"],
+
   // Security headers — frame-ancestors 'none' plus the basics;
   // CSP is intentionally left loose (Next inline scripts) and can
   // be tightened with nonce-based middleware later if needed.

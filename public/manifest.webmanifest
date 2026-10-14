@@ -3,15 +3,23 @@
   "short_name": "Ordix",
   "description": "Order management and inventory for general and industrial products.",
   "id": "/",
-  "start_url": "/order",
+  "start_url": "/home",
   "scope": "/",
-  "display": "standalone",
+  "display": "fullscreen",
+  "display_override": [
+    "fullscreen",
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "any",
-  "background_color": "#f5f6f8",
-  "theme_color": "#2f54c8",
+  "background_color": "#0a0d14",
+  "theme_color": "#0a0d14",
   "lang": "en",
   "dir": "ltr",
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "/icons/icon.svg",
@@ -42,12 +50,42 @@
     {
       "name": "New order",
       "url": "/order",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
-      "name": "Prep board",
-      "url": "/prep",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "name": "Production",
+      "url": "/production",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Closure",
+      "url": "/cashier",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Wallboard",
+      "url": "/display",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

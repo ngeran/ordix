@@ -10,6 +10,34 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Sidebar collapsed to an icon rail — <html data-sidebar="collapsed">
+   is set pre-paint by the root layout and flipped by the toggle. */
+@custom-variant sidebar-collapsed (&:where([data-sidebar="collapsed"], [data-sidebar="collapsed"] *));
+
+/* ============================================================
+   SECTION: Device-shape variants
+   ------------------------------------------------------------
+   short:     little vertical room — phones in landscape, small
+              tablets in landscape with the browser chrome, split
+              view. Compact the chrome, never the content.
+   kbd-open:  the on-screen keyboard is up (<html data-kbd>, set
+              by useViewportTracking from visualViewport) — hide
+              bottom bars so the field being typed in stays visible.
+   rail:      short landscape phones narrower than md, which get
+              the sidebar rail instead of top bar + bottom tabs.
+   ============================================================ */
+
+@custom-variant short (@media (max-height: 540px));
+@custom-variant kbd-open (&:where([data-kbd="open"], [data-kbd="open"] *));
+@custom-variant rail (@media (max-height: 540px) and (orientation: landscape));
+
+/* Full-viewport height with a fallback for browsers without dvh
+   (old iPadOS / Android WebViews): they get 100vh. */
+@utility h-app {
+  height: 100vh;
+  height: 100dvh;
+}
+
 /* ============================================================
    SECTION: Design tokens — light theme
    ------------------------------------------------------------
@@ -176,7 +204,32 @@ body {
   color: var(--on-background);
   font-family: var(--font-sans);
   -webkit-tap-highlight-color: transparent;
-  overscroll-behavior-y: none;
+  /* Pinch-zoom allowed, double-tap-zoom (and its 300ms delay) not. */
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  /* App-like: the shell owns the viewport; <main> scrolls. */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Small phones in landscape: shave the root size so the shell
+   chrome doesn't eat the little height there is. */
+@media (max-height: 480px) and (orientation: landscape) {
+  html {
+    font-size: 16px;
+  }
+}
+
+/* Grid items default to min-width:auto, so one long unbreakable
+   name (or a `truncate` child) widens its whole column past the
+   screen — the cause of sideways scrolling on phones. In this app a
+   grid cell should always shrink to its track; an explicit min-w-*
+   utility still wins (utilities layer beats base). */
+@layer base {
+  .grid > * {
+    min-width: 0;
+  }
 }
 
 /* Visible keyboard focus everywhere, without ugly outlines on tap. */
@@ -238,7 +291,76 @@ body {
   animation: fade-scale-in 0.15s ease-out;
 }
 
+/* Gentle "attention" pulse for items/orders waiting on someone. */
+@keyframes soft-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgb(16 185 129 / 0);
+  }
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-soft-pulse,
+  .animate-pulse {
+    animation: none;
+  }
+}
+
 /* Native <dialog> backdrop */
 dialog::backdrop {
   background: rgb(9 12 20 / 0.5);
+}
+
+/* ============================================================
+   SECTION: Printing (order sheet → paper or "Save as PDF")
+   ------------------------------------------------------------
+   The app normally owns the viewport (body is a fixed-height,
+   non-scrolling box), which would clip a printout to one page —
+   release it, hide screen-only controls and print the paper edge
+   to edge on A4, black on white whatever the theme.
+   ============================================================ */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  /* color-scheme too: in dark mode the page margins otherwise
+     print in the dark canvas color. */
+  html,
+  html.dark,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color-scheme: light !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-root {
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  .print-paper {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  /* Keep the logo tile's brand color when printing. */
+  .print-paper * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

@@ -3,6 +3,9 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import { users } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { ValidationError } from "@/lib/validation";
 import type { OrdixSessionUser } from "@/types";
@@ -28,16 +31,30 @@ export type AuthGuard =
   | { ok: true; user: OrdixSessionUser }
   | { ok: false; response: NextResponse };
 
-/** Any signed-in user (staff or admin). */
+/**
+ * Any signed-in, still-active user (staff or admin).
+ * Sessions are JWTs, so the account is re-checked here (one
+ * primary-key read): a deactivated user is cut off on their next
+ * request, and a role change applies immediately — not after the
+ * 7-day token expires.
+ */
 export async function requireUser(): Promise<AuthGuard> {
+  const unauthorized = {
+    ok: false as const,
+    response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+  };
   const user = await getSessionUser();
-  if (!user) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-    };
-  }
-  return { ok: true, user };
+  if (!user) return unauthorized;
+
+  const db = await getDb();
+  const [account] = await db
+    .select({ role: users.role, isActive: users.isActive, name: users.name })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+  if (!account?.isActive) return unauthorized;
+
+  return { ok: true, user: { ...user, role: account.role, name: account.name } };
 }
 
 /** Admin-only operations: catalog, stock, settings, category CRUD. */

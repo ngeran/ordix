@@ -25,7 +25,7 @@ export const Select = forwardRef<
       <select
         ref={ref}
         className={cn(
-          "h-12 w-full appearance-none rounded-xl border border-border bg-surface px-4 pr-11 text-[15px] text-on-surface",
+          "h-12 w-full appearance-none rounded-xl border border-border bg-surface px-4 pr-11 text-base text-on-surface",
           "focus:border-primary focus:outline-none",
           className
         )}

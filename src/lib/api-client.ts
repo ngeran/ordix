@@ -13,6 +13,8 @@ import {
 } from "@/lib/offline-outbox";
 import { translate } from "@/lib/i18n";
 import { toast } from "@/stores/toast-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { uuid } from "@/lib/uuid";
 
 // ============================================================
 // SECTION: Fetch wrapper (client-side)
@@ -80,10 +82,12 @@ async function request<T>(
     //   - anything else (cancellations, catalog edits) → a clear
     //     needs-connection error; they must not silently replay
     if (method !== "GET" && !(error instanceof ApiError) && isNetworkFailure(error)) {
-      if (isQueueable(method, url)) {
+      // Settings → Features → "Offline orders" can turn queueing off.
+      const offlineQueue = useSettingsStore.getState().settings.features.offlineQueue;
+      if (offlineQueue && isQueueable(method, url)) {
         const label = describeOperation(url);
         await enqueueOperation({
-          id: crypto.randomUUID(),
+          id: uuid(),
           url,
           method: method as "POST" | "PATCH" | "DELETE",
           body: json,
@@ -105,6 +109,8 @@ export const api = {
     request<T>(url, { method: "POST", json }),
   patch: <T>(url: string, json?: unknown) =>
     request<T>(url, { method: "PATCH", json }),
+  put: <T>(url: string, json?: unknown) =>
+    request<T>(url, { method: "PUT", json }),
   delete: <T>(url: string) => request<T>(url, { method: "DELETE" }),
 };
 

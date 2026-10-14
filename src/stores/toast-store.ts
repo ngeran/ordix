@@ -5,6 +5,7 @@
 // ============================================================
 
 import { create } from "zustand";
+import { uuid } from "@/lib/uuid";
 
 // ============================================================
 // SECTION: Toast notifications store
@@ -37,7 +38,7 @@ export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
 
   push: (kind, text) => {
-    const id = crypto.randomUUID();
+    const id = uuid();
     const ttl = kind === "error" ? ERROR_TTL_MS : DEFAULT_TTL_MS;
     set((state) => ({ toasts: [...state.toasts, { id, kind, text, ttl }] }));
     // Auto-dismiss; tap-to-dismiss handled by the viewport.

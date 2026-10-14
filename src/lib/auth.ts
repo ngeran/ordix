@@ -13,7 +13,7 @@ import { users, type UserRole } from "@/db/schema";
 // SECTION: Login rate limiting (per-isolate, best-effort)
 // ------------------------------------------------------------
 // Simple in-memory lockout: 5 failures → 60 s lockout, keyed by
-// email. On Workers the map lives per isolate, so it is a speed
+// the typed login name. On Workers the map lives per isolate, so it is a speed
 // bump rather than a hard guarantee — real protection comes from
 // strong passwords; this slows automated credential stuffing.
 // ============================================================
@@ -59,27 +59,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
       credentials: {
-        email: { label: "Email", type: "email" },
+        username: { label: "Username", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const email = credentials?.email as string | undefined;
+        const login = credentials?.username as string | undefined;
         const password = credentials?.password as string | undefined;
-        if (!email || !password) return null;
+        if (!login || !password) return null;
 
-        const lockKey = email.toLowerCase().trim();
+        const lockKey = login.toLowerCase().trim();
         if (isLockedOut(lockKey)) return null;
 
+        // Username sign-in; an email still works for accounts that
+        // predate usernames (muscle memory, password managers).
         const db = await getDb();
         const [user] = await db
           .select()
           .from(users)
-          .where(eq(users.email, lockKey))
+          .where(lockKey.includes("@") ? eq(users.email, lockKey) : eq(users.username, lockKey))
           .limit(1);
 
         // Compare only when a user exists to keep timing similar
-        // for unknown emails (avoids trivial user enumeration).
-        if (!user) return null;
+        // for unknown names (avoids trivial user enumeration).
+        if (!user || !user.isActive) return null;
 
         const valid = compareSync(password, user.passwordHash);
         if (!valid) {
@@ -92,6 +94,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: user.id,
           email: user.email,
           name: user.name,
+          username: user.username,
           role: user.role as UserRole,
         };
       },
@@ -109,6 +112,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        token.username = user.username;
       }
       return token;
     },
@@ -117,6 +121,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as UserRole;
+        session.user.username = (token.username as string | undefined) ?? "";
       }
       return session;
     },

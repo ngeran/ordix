@@ -108,6 +108,10 @@ export function usePolling<T>(
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);
       abort.current?.abort();
+      // The aborted request settles asynchronously; release the
+      // guard now so a remount (or URL change) fetches immediately
+      // instead of waiting a whole interval for the first data.
+      inFlight.current = false;
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [url, enabled, intervalMs, fetchNow]);

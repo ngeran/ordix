@@ -28,7 +28,6 @@ import { ORDER_STATUSES } from "@/db/schema";
 describe("transition matrix", () => {
   it("allows exactly the documented transitions", () => {
     const allowed = new Set<string>([
-      "placed>in_production",
       "in_production>production_complete",
       "in_production>on_hold",
       "in_production>cancelled",

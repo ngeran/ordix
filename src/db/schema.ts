@@ -63,11 +63,34 @@ export type UserRole = (typeof USER_ROLES)[number];
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
+  /** Login name (lowercase, unique) — what staff type to sign in. */
+  username: text("username").notNull().unique(),
+  /** Legacy login / optional contact. Users created without one get
+   *  a hidden `<username>@users.invalid` placeholder (see 0006). */
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  /** Display name shown on orders ("Taken by Maria"). */
   name: text("name").notNull(),
   role: text("role", { enum: USER_ROLES }).notNull().default("staff"),
+  /** Deactivated users can't sign in; their history stays intact. */
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// ============================================================
+// SECTION: App settings (admin → Settings)
+// ------------------------------------------------------------
+// One JSON document per key; the shape and defaults live in
+// src/lib/settings.ts so a missing/old document always reads
+// as a complete, valid settings object.
+// ============================================================
+
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
 });

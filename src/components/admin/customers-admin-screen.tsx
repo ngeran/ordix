@@ -77,7 +77,7 @@ export function CustomersAdminScreen() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-4">
+    <div className="mx-auto w-full max-w-[110rem] px-3 py-4 sm:px-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{t("customers.title")}</h1>
         <Button onClick={() => setEditing(null)}>
@@ -108,25 +108,25 @@ export function CustomersAdminScreen() {
       ) : customers.length === 0 ? (
         <EmptyState icon={UserRound} title={t("customers.empty")} />
       ) : (
-        <ul className="space-y-2">
+        <ul className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(min(100%,36rem),1fr))]">
           {customers.map((customer) => (
-            <li key={customer.id}>
+            <li key={customer.id} className="min-w-0">
               <Card
                 className={cnClass(
-                  "flex items-center gap-3 p-3",
+                  "flex h-full items-center gap-2 p-3 sm:gap-3",
                   !customer.isActive && "opacity-60"
                 )}
               >
                 <span
                   aria-hidden
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-primary"
+                  className="hidden h-10 w-10 shrink-0 min-[400px]:flex items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-primary"
                 >
                   {customer.name.charAt(0).toUpperCase()}
                 </span>
 
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{customer.name}</p>
-                  <p className="truncate text-xs text-on-surface-muted">
+                  <p className="line-clamp-2 break-words text-xs text-on-surface-muted">
                     {customer.phone ?? t("customer.noPhone")}
                     {customer.address ? ` · ${customer.address}` : ""}
                     {customer.comments ? ` · ${customer.comments}` : ""}
@@ -142,14 +142,17 @@ export function CustomersAdminScreen() {
                 <Button
                   variant="secondary"
                   size="sm"
+                  className="shrink-0 max-sm:w-10 max-sm:px-0"
                   onClick={() => setEditing(customer)}
+                  aria-label={t("common.edit")}
                 >
                   <Pencil className="h-4 w-4" />
-                  {t("common.edit")}
+                  <span className="hidden sm:inline">{t("common.edit")}</span>
                 </Button>
                 <Button
                   variant="ghost"
                   size="iconSm"
+                  className="h-11 w-11 shrink-0"
                   onClick={() => setDeleting(customer)}
                   aria-label={t("common.delete")}
                 >

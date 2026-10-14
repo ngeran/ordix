@@ -4,53 +4,22 @@
 // SECTION: Imports
 // ============================================================
 
-import { useT } from "@/lib/i18n";
+import type { OrderSummary } from "@/types";
+import { summaryProgress } from "@/lib/order-status";
+import { ProgressBar } from "@/components/orders/order-visuals";
 
 // ============================================================
-// SECTION: Order progress bar
+// SECTION: Order progress bar (list rows)
 // ------------------------------------------------------------
-// Segmented production progress: green = produced, amber = in
-// production, gray = not started. Exposed as a progressbar for
-// screen readers with the "{done}/{count} produced" label.
+// Thin adapter: list aggregates → the shared ProgressBar, so
+// list screens and the detail page use one formula.
 // ============================================================
 
 interface OrderProgressProps {
-  order: Pick<
-    import("@/types").OrderSummary,
-    "itemCount" | "producedCount" | "inProductionCount"
-  >;
+  order: Pick<OrderSummary, "itemCount" | "producedCount" | "inProductionCount">;
+  size?: "sm" | "md" | "lg";
 }
 
-export function OrderProgress({ order }: OrderProgressProps) {
-  const t = useT();
-  const total = Math.max(1, order.itemCount);
-  const producedPct = Math.round((order.producedCount / total) * 100);
-  const inProdPct = Math.round(
-    (order.inProductionCount / total) * 100
-  );
-
-  return (
-    <div>
-      <div
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={order.itemCount}
-        aria-valuenow={order.producedCount}
-        aria-label={t("orders.progress", {
-          done: order.producedCount,
-          count: order.itemCount,
-        })}
-        className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-container-high"
-      >
-        <div className="bg-success" style={{ width: `${producedPct}%` }} />
-        <div className="bg-warning" style={{ width: `${inProdPct}%` }} />
-      </div>
-      <p className="mt-1 text-[11px] text-on-surface-muted">
-        {t("orders.progress", {
-          done: order.producedCount,
-          count: order.itemCount,
-        })}
-      </p>
-    </div>
-  );
+export function OrderProgress({ order, size = "sm" }: OrderProgressProps) {
+  return <ProgressBar progress={summaryProgress(order)} size={size} />;
 }

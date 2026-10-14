@@ -22,7 +22,7 @@ export const Input = forwardRef<
     <input
       ref={ref}
       className={cn(
-        "h-12 w-full rounded-xl border border-border bg-surface px-4 text-[15px] text-on-surface placeholder:text-on-surface-muted/70",
+        "h-12 w-full rounded-xl border border-border bg-surface px-4 text-base text-on-surface placeholder:text-on-surface-muted/70",
         "focus:border-primary focus:outline-none",
         "aria-invalid:border-error aria-invalid:bg-error-soft/30",
         className

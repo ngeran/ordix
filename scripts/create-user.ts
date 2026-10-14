@@ -17,9 +17,13 @@ import { join } from "node:path";
 // be created by hand. This script builds the bcrypt hash and
 // runs the INSERT through wrangler — locally or remotely:
 //
-//   npm run db:create-user -- admin@example.com "s3cret!" "Nikos"
-//   npm run db:create-user -- maria@example.com "s3cret!" "Maria" --staff
-//   npm run db:create-user -- bob@example.com "s3cret!" "Bob" --staff --remote
+//   npm run db:create-user -- nikos "s3cret!" "Nikos"
+//   npm run db:create-user -- maria "s3cret!" "Maria" --staff
+//   npm run db:create-user -- bob "s3cret!" "Bob" --staff --remote
+//
+// After the first admin exists, manage everyone else in the app
+// (Admin → Users). Passing an email as the first argument still
+// works: its local part becomes the username.
 //
 // Default role is admin; --staff downgrades. The SQL goes to
 // wrangler via a temp file (--file), never via shell string
@@ -36,14 +40,19 @@ const isRemote = args.includes("--remote");
 const isStaff = args.includes("--staff");
 const positional = args.filter((arg) => arg !== "--remote" && arg !== "--staff");
 
-const [email, password, name] = positional;
+const [login, password, name] = positional;
 
-if (!email || !password) {
+if (!login || !password) {
   console.error(
-    "Usage: npm run db:create-user -- <email> <password> [name] [--staff] [--remote]"
+    "Usage: npm run db:create-user -- <username> <password> [name] [--staff] [--remote]"
   );
   process.exit(1);
 }
+
+const loginName = login.toLowerCase().trim();
+const username = loginName.includes("@") ? loginName.split("@")[0] : loginName;
+// Same hidden placeholder the app uses for users without an email.
+const email = loginName.includes("@") ? loginName : `${username}@users.invalid`;
 
 // ============================================================
 // SECTION: Build the INSERT
@@ -54,16 +63,18 @@ const sqlEscape = (value: string) => value.replace(/'/g, "''");
 
 const userRow = {
   id: randomUUID(),
-  email: email.toLowerCase().trim(),
+  username,
+  email,
   passwordHash: bcrypt.hashSync(password, 10),
-  name: name?.trim() || email,
+  name: name?.trim() || username,
   role: isStaff ? "staff" : "admin",
 };
 
 const insertSql = `
-INSERT INTO users (id, email, password_hash, name, role, created_at)
+INSERT INTO users (id, username, email, password_hash, name, role, created_at)
 VALUES (
   '${userRow.id}',
+  '${sqlEscape(userRow.username)}',
   '${sqlEscape(userRow.email)}',
   '${userRow.passwordHash}',
   '${sqlEscape(userRow.name)}',
@@ -81,14 +92,14 @@ writeFileSync(tempFile, insertSql, "utf8");
 
 const target = isRemote ? "--remote" : "--local";
 console.log(
-  `Creating ${userRow.role} user "${userRow.email}" on ${isRemote ? "REMOTE" : "LOCAL"} database…`
+  `Creating ${userRow.role} user "${userRow.username}" on ${isRemote ? "REMOTE" : "LOCAL"} database…`
 );
 
 try {
   execSync(`npx wrangler d1 execute ordix-db ${target} -y --file ${tempFile}`, {
     stdio: "inherit",
   });
-  console.log(`✔ Done — ${userRow.email} can now sign in.`);
+  console.log(`✔ Done — ${userRow.username} can now sign in.`);
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }

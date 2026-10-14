@@ -4,6 +4,7 @@
 // SECTION: Imports
 // ============================================================
 
+import { useEffect, useRef } from "react";
 import { CheckCircle2, Info, TriangleAlert, XCircle } from "lucide-react";
 import { useToastStore, type ToastKind } from "@/stores/toast-store";
 import { cn } from "@/lib/utils";
@@ -35,15 +36,34 @@ const KIND_STYLES: Record<ToastKind, { border: string; icon: React.ReactNode }> 
   },
 };
 
+// Open modal <dialog>s live in the browser's TOP LAYER, above any
+// z-index — toasts raised from inside a dialog (save errors…) used
+// to render behind its backdrop. The viewport is therefore a manual
+// popover (also top layer), re-shown on every change so it stacks
+// above the most recently opened dialog. Without popover support
+// (Safari < 17) it degrades to the plain fixed z-50 layer.
 export function ToastViewport() {
   const toasts = useToastStore((state) => state.toasts);
   const dismiss = useToastStore((state) => state.dismiss);
+  const ref = useRef<HTMLDivElement>(null);
 
-  if (toasts.length === 0) return null;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof el.showPopover !== "function") return;
+    if (el.matches(":popover-open")) el.hidePopover();
+    if (toasts.length > 0) el.showPopover();
+  }, [toasts]);
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-3 z-50 flex flex-col items-center gap-2 px-3"
+      ref={ref}
+      popover="manual"
+      className={cn(
+        // Reset the UA popover box (centered, bordered, opaque).
+        "pointer-events-none fixed inset-x-0 bottom-auto top-[max(0.75rem,env(safe-area-inset-top))] z-50 m-0 flex w-auto flex-col items-center gap-2 overflow-visible border-0 bg-transparent p-0",
+        "px-[max(0.75rem,env(safe-area-inset-left))]",
+        toasts.length === 0 && "hidden"
+      )}
       aria-live="polite"
       role="status"
     >

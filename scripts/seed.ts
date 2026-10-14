@@ -34,6 +34,7 @@ import { categories, customers, products, users } from "../src/db/schema";
 const seedUsers = [
   {
     id: crypto.randomUUID(),
+    username: "admin",
     email: "admin@ordix.local",
     name: "Nikos (Admin)",
     role: "admin" as const,
@@ -41,6 +42,7 @@ const seedUsers = [
   },
   {
     id: crypto.randomUUID(),
+    username: "staff",
     email: "staff@ordix.local",
     name: "Maria (Staff)",
     role: "staff" as const,
@@ -190,7 +192,7 @@ async function seed() {
 
   // -- Users --
   await db.insert(users).values(seedUsers);
-  console.log(`  ✔ ${seedUsers.length} users (admin@ordix.local / staff@ordix.local)`);
+  console.log(`  ✔ ${seedUsers.length} users (admin / staff)`);
 
   // -- Customers (build-to-order demo) --
   await db.insert(customers).values(seedCustomers);

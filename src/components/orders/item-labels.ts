@@ -21,11 +21,13 @@ export function quantityLabel(item: LabelableItem, t: Translate): string {
   const parts: string[] = [];
   if (item.quantityBoxes > 0) {
     parts.push(
-      `${item.quantityBoxes} ${t("pos.boxes")}`
+      `${item.quantityBoxes} ${item.quantityBoxes === 1 ? t("pos.box") : t("pos.boxes")}`
     );
   }
   if (item.quantityItems > 0) {
-    parts.push(`${item.quantityItems} ${t("pos.items")}`);
+    parts.push(
+      `${item.quantityItems} ${item.quantityItems === 1 ? t("pos.item") : t("pos.items")}`
+    );
   }
   return parts.length > 0 ? parts.join(" + ") : `0 ${t("pos.items")}`;
 }

@@ -87,8 +87,8 @@ export function CategoriesScreen() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="mx-auto w-full max-w-[110rem] px-3 py-4 sm:px-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{t("categories.title")}</h1>
         <Button onClick={() => setEditing(null)}>
           <Plus className="h-5 w-5" />
@@ -101,15 +101,16 @@ export function CategoriesScreen() {
       ) : categories.length === 0 ? (
         <EmptyState icon={FolderTree} title={t("categories.empty")} />
       ) : (
-        <ul className="space-y-2">
+        <ul className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(min(100%,36rem),1fr))]">
           {categories.map((category, index) => (
-            <li key={category.id}>
-              <Card className="flex items-center gap-3 p-3">
+            <li key={category.id} className="min-w-0">
+              <Card className="flex h-full items-center gap-2 p-3 sm:gap-3">
                 {/* Reorder controls */}
-                <div className="flex flex-col">
+                <div className="flex shrink-0 flex-col">
                   <Button
                     variant="ghost"
                     size="iconSm"
+                    className="h-11 w-11"
                     disabled={index === 0}
                     onClick={() => move(index, -1)}
                     aria-label={t("categories.moveUp")}
@@ -119,6 +120,7 @@ export function CategoriesScreen() {
                   <Button
                     variant="ghost"
                     size="iconSm"
+                    className="h-11 w-11"
                     disabled={index === categories.length - 1}
                     onClick={() => move(index, 1)}
                     aria-label={t("categories.moveDown")}
@@ -139,16 +141,16 @@ export function CategoriesScreen() {
                   {category.nameEl && (
                     <p className="truncate text-xs text-on-surface-muted">{category.nameEl}</p>
                   )}
-                  <p className="text-xs text-on-surface-muted">
+                  <p className="truncate text-xs text-on-surface-muted">
                     {category.productCount} {t("common.items")}
                   </p>
                 </div>
 
-                <Button variant="secondary" size="sm" onClick={() => setEditing(category)}>
+                <Button variant="secondary" size="sm" className="shrink-0 max-sm:w-10 max-sm:px-0" onClick={() => setEditing(category)} aria-label={t("common.edit")}>
                   <Pencil className="h-4 w-4" />
-                  {t("common.edit")}
+                  <span className="hidden sm:inline">{t("common.edit")}</span>
                 </Button>
-                <Button variant="ghost" size="iconSm" onClick={() => setDeleting(category)} aria-label={t("common.delete")}>
+                <Button variant="ghost" size="iconSm" className="h-11 w-11 shrink-0" onClick={() => setDeleting(category)} aria-label={t("common.delete")}>
                   <Trash2 className="h-4 w-4 text-error" />
                 </Button>
               </Card>
