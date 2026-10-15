@@ -11,6 +11,8 @@ import { categories, customers, products } from "@/db/schema";
 import type { Category, Customer, Product } from "@/db/schema";
 import { errorResponse, requireAdmin } from "@/lib/api-auth";
 import { parseJsonBody } from "@/lib/validation";
+import { cleanCustomValues, type CustomFieldDef, type CustomValues } from "@/lib/custom-fields";
+import { getCustomFieldDefs } from "@/lib/custom-fields-server";
 import {
   IMPORT_FORMATS,
   IMPORT_TYPES,
@@ -19,6 +21,7 @@ import {
   type ParsedCategory,
   type ParsedCustomer,
   type ParsedProduct,
+  type WithCustom,
 } from "@/lib/importer";
 
 // ============================================================
@@ -50,6 +53,25 @@ type Statements = BatchItem<"sqlite">[];
 const BATCH_SIZE = 50;
 
 const key = (value: string) => value.trim().toLowerCase();
+
+/**
+ * Custom values for an imported row: new rows are validated as-is (required
+ * fields enforced); existing rows only change the keys the file provides.
+ * Returns `undefined` when nothing changes.
+ */
+function importCustomValues(
+  defs: CustomFieldDef[],
+  custom: Record<string, CustomValues[string]>,
+  existing: CustomValues | null | undefined,
+  isNew: boolean
+): { extra?: CustomValues | null; error?: string } {
+  if (defs.length === 0) return isNew ? { extra: null } : {};
+  if (!isNew && Object.keys(custom).length === 0) return {};
+  const { values, error } = cleanCustomValues(defs, isNew ? custom : { ...existing, ...custom }, existing);
+  if (error) return { error };
+  if (!isNew && JSON.stringify(values) === JSON.stringify(existing ?? {})) return {};
+  return { extra: values };
+}
 
 /** Only fields the file actually provided, and only if they differ. */
 function changedFields<Row extends object>(
@@ -86,18 +108,21 @@ export async function POST(request: Request) {
     };
     const statements: Statements = [];
 
+    const defs = await getCustomFieldDefs(db, body.type);
+    const customKeys = defs.filter((def) => def.isActive).map((def) => def.key);
+
     if (body.type === "products") {
-      const parsed = parseImportFile("products", body.format, body.content);
+      const parsed = parseImportFile("products", body.format, body.content, customKeys);
       report.errors.push(...parsed.errors);
-      await planProducts(db, parsed.rows, report, statements);
+      await planProducts(db, parsed.rows, defs, report, statements);
     } else if (body.type === "categories") {
-      const parsed = parseImportFile("categories", body.format, body.content);
+      const parsed = parseImportFile("categories", body.format, body.content, customKeys);
       report.errors.push(...parsed.errors);
-      await planCategories(db, parsed.rows, report, statements);
+      await planCategories(db, parsed.rows, defs, report, statements);
     } else {
-      const parsed = parseImportFile("customers", body.format, body.content);
+      const parsed = parseImportFile("customers", body.format, body.content, customKeys);
       report.errors.push(...parsed.errors);
-      await planCustomers(db, parsed.rows, report, statements);
+      await planCustomers(db, parsed.rows, defs, report, statements);
     }
 
     if (!body.dryRun) {
@@ -133,6 +158,7 @@ function newCategory(name: string, sortOrder: number, extra: Partial<Category> =
     name: name.trim(),
     nameEl: null,
     description: null,
+    extra: null,
     sortOrder,
     isActive: true,
     createdAt: now,
@@ -143,19 +169,26 @@ function newCategory(name: string, sortOrder: number, extra: Partial<Category> =
 
 async function planCategories(
   db: Db,
-  rows: ParsedCategory[],
+  rows: WithCustom<ParsedCategory>[],
+  defs: CustomFieldDef[],
   report: ImportReport,
   statements: Statements
 ) {
   const lookup = await loadCategories(db);
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     const match = lookup.byName.get(key(row.name));
+    const custom = importCustomValues(defs, row.custom, match?.extra, !match);
+    if (custom.error) {
+      report.errors.push(`Row ${index + 1} (${row.name}): ${custom.error}`);
+      continue;
+    }
 
     if (!match) {
       const created = newCategory(row.name, row.sortOrder ?? lookup.takeSortOrder(), {
         nameEl: row.nameEl ?? null,
         description: row.description ?? null,
+        extra: custom.extra ?? null,
       });
       statements.push(db.insert(categories).values(created));
       lookup.byName.set(key(row.name), created);
@@ -163,11 +196,14 @@ async function planCategories(
       continue;
     }
 
-    const changes = changedFields(match, {
-      nameEl: row.nameEl,
-      description: row.description,
-      sortOrder: row.sortOrder,
-    });
+    const changes: Partial<Category> = {
+      ...changedFields(match, {
+        nameEl: row.nameEl,
+        description: row.description,
+        sortOrder: row.sortOrder,
+      }),
+      ...(custom.extra !== undefined ? { extra: custom.extra } : {}),
+    };
     if (Object.keys(changes).length === 0) {
       report.unchanged += 1;
       continue;
@@ -189,7 +225,8 @@ async function planCategories(
 
 async function planProducts(
   db: Db,
-  rows: ParsedProduct[],
+  rows: WithCustom<ParsedProduct>[],
+  defs: CustomFieldDef[],
   report: ImportReport,
   statements: Statements
 ) {
@@ -209,6 +246,11 @@ async function planProducts(
 
   rows.forEach((row, index) => {
     const match = byPart.get(key(row.partNumber));
+    const custom = importCustomValues(defs, row.custom, match?.extra, !match);
+    if (custom.error) {
+      report.errors.push(`Row ${index + 1} (${row.partNumber}): ${custom.error}`);
+      return;
+    }
 
     if (!match) {
       if (!row.category) {
@@ -228,6 +270,7 @@ async function planProducts(
         isActive: true,
         barcode: row.barcode ?? null,
         itemsPerBox: row.itemsPerBox ?? null,
+        extra: custom.extra ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -237,13 +280,16 @@ async function planProducts(
       return;
     }
 
-    const changes = changedFields(match, {
-      name: row.name,
-      description: row.description,
-      barcode: row.barcode,
-      itemsPerBox: row.itemsPerBox,
-      categoryId: row.category ? resolveCategory(row.category) : undefined,
-    });
+    const changes: Partial<Product> = {
+      ...changedFields(match, {
+        name: row.name,
+        description: row.description,
+        barcode: row.barcode,
+        itemsPerBox: row.itemsPerBox,
+        categoryId: row.category ? resolveCategory(row.category) : undefined,
+      }),
+      ...(custom.extra !== undefined ? { extra: custom.extra } : {}),
+    };
     if (Object.keys(changes).length === 0) {
       report.unchanged += 1;
       return;
@@ -262,7 +308,8 @@ async function planProducts(
 
 async function planCustomers(
   db: Db,
-  rows: ParsedCustomer[],
+  rows: WithCustom<ParsedCustomer>[],
+  defs: CustomFieldDef[],
   report: ImportReport,
   statements: Statements
 ) {
@@ -279,9 +326,14 @@ async function planCustomers(
     byName.set(key(row.name), row);
   };
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     const match =
       (row.phone ? byPhone.get(key(row.phone)) : undefined) ?? byName.get(key(row.name));
+    const custom = importCustomValues(defs, row.custom, match?.extra, !match);
+    if (custom.error) {
+      report.errors.push(`Row ${index + 1} (${row.name}): ${custom.error}`);
+      continue;
+    }
 
     if (!match) {
       const now = new Date();
@@ -292,6 +344,7 @@ async function planCustomers(
         phone: row.phone ?? null,
         email: row.email ?? null,
         comments: row.comments ?? null,
+        extra: custom.extra ?? null,
         isActive: true,
         createdAt: now,
         updatedAt: now,
@@ -302,13 +355,16 @@ async function planCustomers(
       continue;
     }
 
-    const changes = changedFields(match, {
-      name: row.name,
-      address: row.address,
-      phone: row.phone,
-      email: row.email,
-      comments: row.comments,
-    });
+    const changes: Partial<Customer> = {
+      ...changedFields(match, {
+        name: row.name,
+        address: row.address,
+        phone: row.phone,
+        email: row.email,
+        comments: row.comments,
+      }),
+      ...(custom.extra !== undefined ? { extra: custom.extra } : {}),
+    };
     if (Object.keys(changes).length === 0) {
       report.unchanged += 1;
       continue;

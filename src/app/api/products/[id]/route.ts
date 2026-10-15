@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { orderItems, products } from "@/db/schema";
+import { customValuesForUpdate } from "@/lib/custom-fields-server";
 import { errorResponse, requireAdmin } from "@/lib/api-auth";
 import { parseJsonBody, productUpdateSchema } from "@/lib/validation";
 
@@ -25,9 +26,14 @@ export async function PATCH(
     const db = await getDb();
     const input = await parseJsonBody(request, productUpdateSchema);
 
+    const { extra, ...fields } = input;
+    const customValues = await customValuesForUpdate(db, "products", extra, async () => {
+      const [row] = await db.select({ extra: products.extra }).from(products).where(eq(products.id, id)).limit(1);
+      return row?.extra;
+    });
     const [updated] = await db
       .update(products)
-      .set({ ...input, updatedAt: new Date() })
+      .set({ ...fields, ...customValues, updatedAt: new Date() })
       .where(eq(products.id, id))
       .returning();
 

@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, products } from "@/db/schema";
+import { customValuesForCreate } from "@/lib/custom-fields-server";
 import { errorResponse, requireAdmin, requireUser } from "@/lib/api-auth";
 import { categoryCreateSchema, parseJsonBody } from "@/lib/validation";
 
@@ -51,9 +52,11 @@ export async function POST(request: Request) {
     const db = await getDb();
     const input = await parseJsonBody(request, categoryCreateSchema);
 
+    const { extra, ...fields } = input;
+    const customValues = await customValuesForCreate(db, "categories", extra);
     const [created] = await db
       .insert(categories)
-      .values({ id: crypto.randomUUID(), ...input })
+      .values({ id: crypto.randomUUID(), ...fields, extra: customValues })
       .returning();
 
     return NextResponse.json(created, { status: 201 });

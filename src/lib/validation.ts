@@ -3,7 +3,9 @@
 // ============================================================
 
 import { z } from "zod";
-import { ORDER_STATUSES, USER_ROLES } from "@/db/schema";
+import { ORDER_STATUSES } from "@/db/schema";
+import { ASSIGNABLE_ROLES } from "@/lib/roles";
+import { customValuesSchema } from "@/lib/custom-fields";
 
 // ============================================================
 // SECTION: Shared field schemas
@@ -37,6 +39,7 @@ export const categoryCreateSchema = z.object({
   description: optionalText,
   sortOrder: z.coerce.number().int().min(0).max(9999).default(0),
   isActive: z.boolean().default(true),
+  extra: customValuesSchema,
 });
 
 export const categoryUpdateSchema = categoryCreateSchema.partial();
@@ -60,6 +63,7 @@ export const customerCreateSchema = z.object({
     .transform((value) => (value === "" ? undefined : value)),
   comments: optionalText,
   isActive: z.boolean().default(true),
+  extra: customValuesSchema,
 });
 
 export const customerUpdateSchema = customerCreateSchema.partial();
@@ -82,8 +86,13 @@ export const userCreateSchema = z.object({
   username,
   name: shortText,
   password,
-  role: z.enum(USER_ROLES).default("staff"),
+  role: z.enum(ASSIGNABLE_ROLES).default("staff"),
   isActive: z.boolean().default(true),
+});
+
+export const systemResetSchema = z.object({
+  scope: z.enum(["orders", "all"]),
+  password: z.string().min(1).max(200),
 });
 
 export const userUpdateSchema = z.object({
@@ -91,7 +100,7 @@ export const userUpdateSchema = z.object({
   name: shortText.optional(),
   /** Set only when the admin resets the password. */
   password: password.optional(),
-  role: z.enum(USER_ROLES).optional(),
+  role: z.enum(ASSIGNABLE_ROLES).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -115,6 +124,7 @@ export const productCreateSchema = z.object({
   itemsPerBox: z.coerce.number().int().min(0).max(100_000).optional().nullable(),
   categoryId: uuid,
   isActive: z.boolean().default(true),
+  extra: customValuesSchema,
 });
 
 export const productUpdateSchema = productCreateSchema.partial();

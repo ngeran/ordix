@@ -2,7 +2,8 @@
 // SECTION: Imports
 // ============================================================
 
-import { and, eq, ne, sql } from "drizzle-orm";
+import { compareSync } from "bcryptjs";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { getDb } from "@/db";
 import { users, type User } from "@/db/schema";
 
@@ -26,6 +27,16 @@ export const publicUserColumns = {
   createdAt: users.createdAt,
 };
 
+/** Re-confirms a signed-in user's password before destructive actions. */
+export async function checkPassword(db: Database, userId: string, password: string): Promise<boolean> {
+  const [row] = await db
+    .select({ passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row !== undefined && compareSync(password, row.passwordHash);
+}
+
 /** Placeholder for the NOT NULL UNIQUE legacy email column. */
 export const placeholderEmail = (username: string) => `${username}@users.invalid`;
 
@@ -34,6 +45,8 @@ export async function countOtherActiveAdmins(db: Database, excludeId: string): P
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
     .from(users)
-    .where(and(eq(users.role, "admin"), eq(users.isActive, true), ne(users.id, excludeId)));
+    .where(
+      and(inArray(users.role, ["admin", "owner"]), eq(users.isActive, true), ne(users.id, excludeId))
+    );
   return Number(row?.count ?? 0);
 }

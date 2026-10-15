@@ -7,6 +7,7 @@ import type {
   OrderEvent,
   OrderItem,
   Product,
+  UserRole,
 } from "@/db/schema";
 
 // ============================================================
@@ -68,7 +69,7 @@ export interface OrdixSessionUser {
   name?: string | null;
   email?: string | null;
   username: string;
-  role: "admin" | "staff";
+  role: UserRole;
 }
 
 /** Standard error envelope returned by every API route. */

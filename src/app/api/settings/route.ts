@@ -31,6 +31,10 @@ export async function PUT(request: Request) {
   try {
     const db = await getDb();
     const input = await parseJsonBody(request, settingsSchema);
+    // Language rules are owner-only; admins save everything else.
+    if (guard.user.role !== "owner") {
+      input.language = (await getAppSettings()).language;
+    }
     const value = JSON.stringify(input);
     const now = new Date();
 

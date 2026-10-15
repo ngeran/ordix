@@ -5,6 +5,7 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
+import { queryInChunks } from "@/db";
 import {
   customers,
   orderCounters,
@@ -205,7 +206,8 @@ export async function listOrders(
   // rows were placed with it; new rows store the expanded count),
   // so a plain sum covers both eras. --
   const orderIds = rows.map((row) => row.order.id);
-  const aggregates = await db
+  const aggregates = await queryInChunks(orderIds, (ids) =>
+    db
     .select({
       orderId: orderItems.orderId,
       itemCount: sql<number>`count(*)`,
@@ -216,11 +218,12 @@ export async function listOrders(
     .from(orderItems)
     .where(
       and(
-        inArray(orderItems.orderId, orderIds),
+        inArray(orderItems.orderId, ids),
         eq(orderItems.status, "active")
       )
     )
-    .groupBy(orderItems.orderId);
+    .groupBy(orderItems.orderId)
+  );
 
   const aggByOrder = new Map(aggregates.map((agg) => [agg.orderId, agg]));
 
@@ -240,15 +243,12 @@ export async function listOrders(
   // -- Active items attached for screens that render them
   // (production board, cashier) — a single extra query, no N+1. --
   if (options.includeItems && orderIds.length > 0) {
-    const items = await db
-      .select()
-      .from(orderItems)
-      .where(
-        and(
-          inArray(orderItems.orderId, orderIds),
-          eq(orderItems.status, "active")
-        )
-      );
+    const items = await queryInChunks(orderIds, (ids) =>
+      db
+        .select()
+        .from(orderItems)
+        .where(and(inArray(orderItems.orderId, ids), eq(orderItems.status, "active")))
+    );
     const itemsByOrder = new Map<string, OrderItem[]>();
     for (const item of items) {
       const list = itemsByOrder.get(item.orderId) ?? [];
@@ -312,10 +312,9 @@ export async function getOrderDetail(
     ),
   ] as string[];
   const actors = actorIds.length
-    ? await db
-        .select({ id: users.id, name: users.name })
-        .from(users)
-        .where(inArray(users.id, actorIds))
+    ? await queryInChunks(actorIds, (ids) =>
+        db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids))
+      )
     : [];
   const nameById = new Map(actors.map((actor) => [actor.id, actor.name]));
 

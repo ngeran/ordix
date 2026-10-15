@@ -17,6 +17,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Field } from "@/components/ui/field";
+import {
+  CustomFieldInputs,
+  customFieldsComplete,
+  useCustomFields,
+  type CustomDraft,
+} from "@/components/custom-fields/custom-field-inputs";
 
 // ============================================================
 // SECTION: Product form dialog (create + edit)
@@ -52,6 +58,8 @@ export function ProductFormDialog({
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [busy, setBusy] = useState(false);
+  const customFields = useCustomFields("products");
+  const [custom, setCustom] = useState<CustomDraft>({});
 
   // Prefill on open (edit) / reset (create).
   useEffect(() => {
@@ -63,6 +71,7 @@ export function ProductFormDialog({
       setItemsPerBox(product.itemsPerBox ? String(product.itemsPerBox) : "");
       setDescription(product.description ?? "");
       setIsActive(product.isActive);
+      setCustom(product.extra ?? {});
     } else {
       setPartNumber("");
       setName("");
@@ -71,11 +80,15 @@ export function ProductFormDialog({
       setItemsPerBox("");
       setDescription("");
       setIsActive(true);
+      setCustom({});
     }
   }, [product, categories]);
 
   const canSubmit =
-    partNumber.trim().length > 0 && name.trim().length > 0 && categoryId !== "";
+    partNumber.trim().length > 0 &&
+    name.trim().length > 0 &&
+    categoryId !== "" &&
+    customFieldsComplete(customFields, custom);
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -89,6 +102,7 @@ export function ProductFormDialog({
         itemsPerBox: itemsPerBox ? Number(itemsPerBox) : null,
         description: description.trim() || undefined,
         isActive,
+        ...(customFields.length > 0 ? { extra: custom } : {}),
       };
       if (isEdit) {
         await api.patch<Product>(`/api/products/${product.id}`, payload);
@@ -165,6 +179,10 @@ export function ProductFormDialog({
         <Field label={t("products.description")} htmlFor="p-desc" className="sm:col-span-2">
           <Textarea id="p-desc" value={description} onChange={(event) => setDescription(event.target.value)} />
         </Field>
+
+        <div className="sm:col-span-2">
+          <CustomFieldInputs fields={customFields} values={custom} onChange={setCustom} />
+        </div>
 
         <div className="flex items-center justify-between rounded-xl bg-surface-container-low px-4 py-3 sm:col-span-2">
           <span className="text-sm font-medium">{t("products.isActive")}</span>

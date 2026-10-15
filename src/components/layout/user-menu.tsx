@@ -11,6 +11,7 @@ import { LogOut, ChevronDown } from "lucide-react";
 import type { OrdixSessionUser } from "@/types";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
+import { ROLE_LABEL } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import type { NavItem } from "@/components/layout/app-shell";
 
@@ -86,7 +87,7 @@ export function UserMenu({
         <div className="border-b border-border px-3 pb-2 pt-1">
           <p className="truncate text-sm font-semibold">{user.name ?? "—"}</p>
           <p className="truncate text-xs text-on-surface-muted">
-            {user.username ? `@${user.username}` : user.email} · {user.role === "admin" ? t("users.roleAdmin") : t("users.roleStaff")}
+            {user.username ? `@${user.username}` : user.email} · {t(ROLE_LABEL[user.role])}
           </p>
         </div>
 

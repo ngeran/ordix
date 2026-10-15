@@ -39,6 +39,20 @@ export async function PATCH(
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // Owner accounts: only an owner may touch them (so an admin can't reset
+    // the owner's password), and role/active status are CLI-only.
+    if (existing.role === "owner") {
+      if (guard.user.role !== "owner") {
+        return NextResponse.json({ error: "Only the owner can edit the owner account" }, { status: 403 });
+      }
+      if (input.role !== undefined || input.isActive === false) {
+        return NextResponse.json(
+          { error: "The owner's role and status are managed from the command line" },
+          { status: 409 }
+        );
+      }
+    }
+
     const losesAdmin =
       existing.role === "admin" &&
       existing.isActive &&

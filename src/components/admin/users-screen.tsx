@@ -5,8 +5,8 @@
 // ============================================================
 
 import { useState } from "react";
-import { Pencil, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
-import type { UserRole } from "@/db/schema";
+import { Crown, Pencil, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { hasAdminAccess, ROLE_LABEL, type UserRole } from "@/lib/roles";
 import type { PublicUser } from "@/lib/user-service";
 import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
@@ -38,6 +38,7 @@ export function UsersScreen() {
   const users = data ?? [];
   // Signed-in admin: gets the "you" tag and can't self-deactivate.
   const me = useMeId();
+  const meIsOwner = users.some((user) => user.id === me && user.role === "owner");
 
   // -- Dialog state: undefined = closed, null = create, row = edit --
   const [editing, setEditing] = useState<PublicUser | null | undefined>(undefined);
@@ -94,16 +95,20 @@ export function UsersScreen() {
                   </p>
                 </div>
 
-                <Switch
-                  checked={user.isActive}
-                  disabled={user.id === me}
-                  onChange={(next) => toggleActive(user, next)}
-                  aria-label={t("common.active")}
-                />
-                <Button variant="secondary" size="sm" className="shrink-0 max-sm:w-10 max-sm:px-0" onClick={() => setEditing(user)} aria-label={t("common.edit")}>
-                  <Pencil className="h-4 w-4" />
-                  <span className="hidden sm:inline">{t("common.edit")}</span>
-                </Button>
+                {user.role !== "owner" && (
+                  <Switch
+                    checked={user.isActive}
+                    disabled={user.id === me}
+                    onChange={(next) => toggleActive(user, next)}
+                    aria-label={t("common.active")}
+                  />
+                )}
+                {(user.role !== "owner" || meIsOwner) && (
+                  <Button variant="secondary" size="sm" className="shrink-0 max-sm:w-10 max-sm:px-0" onClick={() => setEditing(user)} aria-label={t("common.edit")}>
+                    <Pencil className="h-4 w-4" />
+                    <span className="hidden sm:inline">{t("common.edit")}</span>
+                  </Button>
+                )}
               </Card>
             </li>
           ))}
@@ -132,10 +137,14 @@ function useMeId(): string | undefined {
 
 function RoleLabel({ role }: { role: UserRole }) {
   const t = useT();
-  return role === "admin" ? (
+  return hasAdminAccess(role) ? (
     <span className="inline-flex items-center gap-0.5 font-semibold text-primary">
-      <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-      {t("users.roleAdmin")}
+      {role === "owner" ? (
+        <Crown className="h-3.5 w-3.5" aria-hidden />
+      ) : (
+        <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+      )}
+      {t(ROLE_LABEL[role])}
     </span>
   ) : (
     <span>{t("users.roleStaff")}</span>
@@ -162,6 +171,7 @@ function UserFormDialog({
 }) {
   const t = useT();
   const isEdit = user !== null;
+  const isOwnerAccount = user?.role === "owner";
 
   const [name, setName] = useState(user?.name ?? "");
   const [username, setUsername] = useState(user?.username ?? "");
@@ -181,8 +191,7 @@ function UserFormDialog({
       const payload = {
         name: name.trim(),
         username,
-        role,
-        isActive,
+        ...(isOwnerAccount ? {} : { role, isActive }),
         ...(password ? { password } : {}),
       };
       if (isEdit) {
@@ -260,6 +269,12 @@ function UserFormDialog({
           />
         </Field>
 
+        {isOwnerAccount ? (
+          <p className="rounded-xl bg-surface-container-low px-4 py-3 text-xs text-on-surface-muted">
+            {t("users.ownerLocked")}
+          </p>
+        ) : (
+        <>
         <fieldset>
           <legend className="mb-1.5 text-sm font-medium">{t("users.role")}</legend>
           <div role="radiogroup" className="grid gap-2 sm:grid-cols-2">
@@ -294,6 +309,8 @@ function UserFormDialog({
           </span>
           <Switch checked={isActive} disabled={isMe} onChange={setIsActive} aria-label={t("common.active")} />
         </div>
+        </>
+        )}
         {/* Enter submits from any field */}
         <button type="submit" hidden />
       </form>

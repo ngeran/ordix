@@ -25,6 +25,29 @@ export async function getDb() {
   return drizzle(env.DB, { schema });
 }
 
+/**
+ * Cloudflare D1 rejects statements with more than 100 bound parameters (local
+ * dev does NOT enforce this). Runs `run` over slices of `values` and joins the
+ * results — use for every `inArray(...)` whose list can grow.
+ */
+export async function queryInChunks<T, R>(
+  values: T[],
+  run: (chunk: T[]) => Promise<R[]>,
+  size = 90
+): Promise<R[]> {
+  const chunks: T[][] = [];
+  for (let start = 0; start < values.length; start += size) {
+    chunks.push(values.slice(start, start + size));
+  }
+  return (await Promise.all(chunks.map(run))).flat();
+}
+
+/** Raw D1 binding — for schema-agnostic work (backup/restore). */
+export async function getD1(): Promise<D1Database> {
+  const { env } = await getCloudflareContext({ async: true });
+  return env.DB;
+}
+
 // `getDb` is intentionally async-shaped even though it performs no
 // awaits of its own beyond the context resolution — keeping the
 // call sites `await getDb()` makes swapping in a pooled client

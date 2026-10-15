@@ -177,7 +177,11 @@ function chunk<T>(array: T[], size: number): T[][] {
 async function seed() {
   // Platform proxy = local miniflare with the same D1 state the
   // dev server uses (.wrangler/state/v3).
-  const proxy = await getPlatformProxy<{ DB: D1Database }>();
+  // PERSIST_DIR mirrors wrangler's --persist-to (which appends /v3 itself).
+  const persistDir = process.env.PERSIST_DIR;
+  const proxy = await getPlatformProxy<{ DB: D1Database }>({
+    persist: persistDir ? { path: `${persistDir}/v3` } : true,
+  });
   const db = drizzle(proxy.env.DB);
 
   // -- Idempotency: skip when already seeded --

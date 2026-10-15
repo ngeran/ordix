@@ -19,6 +19,9 @@
     "db:migrate:remote": "wrangler d1 migrations apply ordix-db --remote",
     "db:seed": "tsx scripts/seed.ts",
     "db:create-user": "tsx scripts/create-user.ts",
+    "db:set-role": "tsx scripts/set-role.ts",
+    "db:set-password": "tsx scripts/set-password.ts",
+    "db:reset": "bash scripts/reset-db.sh",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
