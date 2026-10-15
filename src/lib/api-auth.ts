@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
+import { hasAdminAccess } from "@/lib/roles";
 import { auth } from "@/lib/auth";
 import { ValidationError } from "@/lib/validation";
 import type { OrdixSessionUser } from "@/types";
@@ -57,11 +58,23 @@ export async function requireUser(): Promise<AuthGuard> {
   return { ok: true, user: { ...user, role: account.role, name: account.name } };
 }
 
-/** Admin-only operations: catalog, stock, settings, category CRUD. */
+const forbidden = (): AuthGuard => ({
+  ok: false,
+  response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+});
+
+/** Admin-only operations: catalog, stock, settings, category CRUD (owners included). */
 export async function requireAdmin(): Promise<AuthGuard> {
   const guard = await requireUser();
   if (!guard.ok) return guard;
-  if (guard.user.role !== "admin") {
+  return hasAdminAccess(guard.user.role) ? guard : forbidden();
+}
+
+/** Owner-only: destructive maintenance such as wiping the database. */
+export async function requireOwner(): Promise<AuthGuard> {
+  const guard = await requireUser();
+  if (!guard.ok) return guard;
+  if (guard.user.role !== "owner") {
     return {
       ok: false,
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),

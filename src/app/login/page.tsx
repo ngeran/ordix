@@ -4,8 +4,8 @@
 // SECTION: Imports
 // ============================================================
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,16 +21,14 @@ import { BrandMark } from "@/components/layout/app-shell";
 // SECTION: Login screen
 // ------------------------------------------------------------
 // Credentials form → NextAuth `signIn("credentials")`. On
-// success we `router.replace` to the callbackUrl (the page the
-// user was bounced from) and refresh so server components pick
-// up the new session cookie.
+// success everyone lands on the Home launcher (by design, not the
+// page they were bounced from) and we refresh so server components
+// pick up the new session cookie.
 // ============================================================
 
 function LoginForm() {
   const t = useT();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/order";
 
   const settings = useAppSettings();
   const [username, setUsername] = useState("");
@@ -55,7 +53,7 @@ function LoginForm() {
       return;
     }
 
-    router.replace(callbackUrl.startsWith("/") ? callbackUrl : "/order");
+    router.replace("/home");
     router.refresh();
   };
 
@@ -140,11 +138,7 @@ export default function LoginPage() {
     // screen — phone landscape, Android with the keyboard up — stays
     // fully scrollable instead of being cut off at the top.
     <div className="flex h-app overflow-y-auto bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
-      {/* Suspense boundary: useSearchParams inside the form requires it
-          during static prerendering of the page shell. */}
-      <Suspense fallback={null}>
-        <LoginForm />
-      </Suspense>
+      <LoginForm />
     </div>
   );
 }

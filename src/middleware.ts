@@ -9,8 +9,8 @@
 // Behavior:
 //   - /login and /api stay public (API routes do their own
 //     granular role checks via src/lib/api-auth.ts).
-//   - everything else requires a session; missing → /login with
-//     a callbackUrl so users land where they started.
+//   - everything else requires a session; missing → /login, and
+//     after sign-in everyone starts on /home.
 //   - /admin/* additionally requires the admin role.
 //   - static PWA assets (manifest, service worker, icons) bypass
 //     the guard — browsers fetch them without session cookies.
@@ -18,6 +18,7 @@
 
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { hasAdminAccess } from "@/lib/roles";
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -43,15 +44,13 @@ export default auth((req) => {
   }
 
   if (!req.auth) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   // Admin area is role-gated at the edge; staff get bounced to
   // the order screen rather than a 403 wall.
-  if (pathname.startsWith("/admin") && req.auth.user.role !== "admin") {
-    return NextResponse.redirect(new URL("/order", req.url));
+  if (pathname.startsWith("/admin") && !hasAdminAccess(req.auth.user.role)) {
+    return NextResponse.redirect(new URL("/home", req.url));
   }
 
   return NextResponse.next();

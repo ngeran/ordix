@@ -6,8 +6,8 @@ describe("parseImportFile", () => {
   it("accepts a wrapped list and a bare array", () => {
     const wrapped = parseImportFile("categories", "json", '{"categories":[{"name":"Locks"}]}');
     const bare = parseImportFile("categories", "json", '[{"name":"Locks","sortOrder":"3"}]');
-    expect(wrapped).toEqual({ rows: [{ name: "Locks" }], errors: [] });
-    expect(bare.rows[0]).toEqual({ name: "Locks", sortOrder: 3 });
+    expect(wrapped).toEqual({ rows: [{ name: "Locks", custom: {} }], errors: [] });
+    expect(bare.rows[0]).toEqual({ name: "Locks", sortOrder: 3, custom: {} });
   });
 
   it("reports a missing required field per row instead of 'undefined'", () => {
@@ -23,7 +23,7 @@ describe("parseImportFile", () => {
 
   it("treats blank values as not provided and keeps numeric codes", () => {
     const result = parseImportFile("products", "json", '[{"partNumber":4040,"name":"x","barcode":"  "}]');
-    expect(result.rows[0]).toEqual({ partNumber: "4040", name: "x" });
+    expect(result.rows[0]).toEqual({ partNumber: "4040", name: "x", custom: {} });
   });
 
   it("points at the right type when the wrong one is picked", () => {
@@ -38,9 +38,16 @@ describe("parseImportFile", () => {
       <products><product><partNumber>A&amp;B</partNumber><name><![CDATA[Lock <R70>]]></name>
       <category>Locks &#38; Keys</category><itemsPerBox>10</itemsPerBox></product></products>`;
     expect(parseImportFile("products", "xml", xml)).toEqual({
-      rows: [{ partNumber: "A&B", name: "Lock <R70>", category: "Locks & Keys", itemsPerBox: 10 }],
+      rows: [{ partNumber: "A&B", name: "Lock <R70>", category: "Locks & Keys", itemsPerBox: 10, custom: {} }],
       errors: [],
     });
+  });
+
+  it("collects custom field values by key (JSON and XML)", () => {
+    const json = parseImportFile("products", "json", '[{"partNumber":"A","name":"B","color":"Red","weight":2,"note":" "}]', ["color", "weight", "note"]);
+    expect(json.rows[0]?.custom).toEqual({ color: "Red", weight: 2 });
+    const xml = parseImportFile("products", "xml", "<products><product><partNumber>A</partNumber><name>B</name><color>Blue</color></product></products>", ["color"]);
+    expect(xml.rows[0]?.custom).toEqual({ color: "Blue" });
   });
 
   it("round-trips every downloadable template", () => {

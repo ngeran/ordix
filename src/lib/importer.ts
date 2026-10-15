@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 import { stripXmlNoise, xmlBlocks, xmlDocument, xmlField, type XmlNode } from "@/lib/xml";
+import type { CustomValue } from "@/lib/custom-fields";
 
 // ============================================================
 // SECTION: Import file formats (one record type per file)
@@ -176,23 +177,38 @@ export const IMPORT_SPECS: Record<ImportType, ImportSpec> = {
 // SECTION: Parsing
 // ============================================================
 
+/** Values for owner-defined custom fields, by field key (validated later against the definitions). */
+export type WithCustom<Row> = Row & { custom: Record<string, CustomValue> };
+
 export interface ParsedImport<T extends ImportType> {
-  rows: ParsedRows[T][];
+  rows: WithCustom<ParsedRows[T]>[];
   errors: string[];
+}
+
+function pickCustom(record: unknown, customKeys: string[]): Record<string, CustomValue> {
+  const source = (record ?? {}) as Record<string, unknown>;
+  const custom: Record<string, CustomValue> = {};
+  for (const key of customKeys) {
+    const value = source[key];
+    if (typeof value === "number" || typeof value === "boolean") custom[key] = value;
+    else if (typeof value === "string" && value.trim() !== "") custom[key] = value.trim();
+  }
+  return custom;
 }
 
 function validateRecords<T extends ImportType>(
   type: T,
-  records: unknown[]
+  records: unknown[],
+  customKeys: string[]
 ): ParsedImport<T> {
   const spec = IMPORT_SPECS[type];
-  const rows: ParsedRows[T][] = [];
+  const rows: WithCustom<ParsedRows[T]>[] = [];
   const errors: string[] = [];
 
   records.forEach((record, index) => {
     const parsed = spec.schema.safeParse(record);
     if (parsed.success) {
-      rows.push(parsed.data as ParsedRows[T]);
+      rows.push({ ...(parsed.data as ParsedRows[T]), custom: pickCustom(record, customKeys) });
       return;
     }
     const issue = parsed.error.issues[0];
@@ -228,7 +244,7 @@ function jsonRecords(type: ImportType, content: string): unknown[] | string {
     : `JSON must be an array, or contain a "${type}" array`;
 }
 
-function xmlRecords(type: ImportType, content: string): unknown[] | string {
+function xmlRecords(type: ImportType, content: string, customKeys: string[]): unknown[] | string {
   const spec = IMPORT_SPECS[type];
   const xml = stripXmlNoise(content);
 
@@ -248,19 +264,22 @@ function xmlRecords(type: ImportType, content: string): unknown[] | string {
   }
 
   return blocks.map((block) =>
-    Object.fromEntries(spec.fields.map((field) => [field.name, xmlField(block, field.name)]))
+    Object.fromEntries(
+      [...spec.fields.map((field) => field.name), ...customKeys].map((name) => [name, xmlField(block, name)])
+    )
   );
 }
 
 export function parseImportFile<T extends ImportType>(
   type: T,
   format: ImportFormat,
-  content: string
+  content: string,
+  customKeys: string[] = []
 ): ParsedImport<T> {
-  const records = format === "xml" ? xmlRecords(type, content) : jsonRecords(type, content);
+  const records = format === "xml" ? xmlRecords(type, content, customKeys) : jsonRecords(type, content);
   if (typeof records === "string") return { rows: [], errors: [records] };
   if (records.length === 0) return { rows: [], errors: ["The file has no records"] };
-  return validateRecords(type, records);
+  return validateRecords(type, records, customKeys);
 }
 
 /** Result of POST /api/import (dry run or applied). */

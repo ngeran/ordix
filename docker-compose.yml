@@ -1,0 +1,20 @@
+services:
+  ordix:
+    build: .
+    image: ordix:latest
+    container_name: ordix
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Athens}
+      # First owner account, created only while the users table is empty.
+      OWNER_USERNAME: ${OWNER_USERNAME:-}
+      OWNER_PASSWORD: ${OWNER_PASSWORD:-}
+      OWNER_NAME: ${OWNER_NAME:-Owner}
+    volumes:
+      - ordix-data:/data
+
+volumes:
+  ordix-data:

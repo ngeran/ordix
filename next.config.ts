@@ -47,6 +47,9 @@ const nextConfig: NextConfig = {
 };
 
 // Enable local Cloudflare bindings (D1 "DB") during `next dev`.
-initOpenNextCloudflareForDev();
+// PERSIST_DIR (same as the db scripts) points dev at another local data folder.
+initOpenNextCloudflareForDev(
+  process.env.PERSIST_DIR ? { persist: { path: `${process.env.PERSIST_DIR}/v3` } } : undefined
+);
 
 export default nextConfig;

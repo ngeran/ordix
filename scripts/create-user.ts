@@ -17,7 +17,7 @@ import { join } from "node:path";
 // be created by hand. This script builds the bcrypt hash and
 // runs the INSERT through wrangler — locally or remotely:
 //
-//   npm run db:create-user -- nikos "s3cret!" "Nikos"
+//   npm run db:create-user -- nikos "s3cret!" "Nikos" --owner
 //   npm run db:create-user -- maria "s3cret!" "Maria" --staff
 //   npm run db:create-user -- bob "s3cret!" "Bob" --staff --remote
 //
@@ -38,13 +38,14 @@ import { join } from "node:path";
 const args = process.argv.slice(2);
 const isRemote = args.includes("--remote");
 const isStaff = args.includes("--staff");
-const positional = args.filter((arg) => arg !== "--remote" && arg !== "--staff");
+const isOwner = args.includes("--owner");
+const positional = args.filter((arg) => !["--remote", "--staff", "--owner"].includes(arg));
 
 const [login, password, name] = positional;
 
 if (!login || !password) {
   console.error(
-    "Usage: npm run db:create-user -- <username> <password> [name] [--staff] [--remote]"
+    "Usage: npm run db:create-user -- <username> <password> [name] [--owner|--staff] [--remote]"
   );
   process.exit(1);
 }
@@ -67,7 +68,7 @@ const userRow = {
   email,
   passwordHash: bcrypt.hashSync(password, 10),
   name: name?.trim() || username,
-  role: isStaff ? "staff" : "admin",
+  role: isOwner ? "owner" : isStaff ? "staff" : "admin",
 };
 
 const insertSql = `
@@ -90,7 +91,10 @@ const tempDir = mkdtempSync(join(tmpdir(), "ordix-user-"));
 const tempFile = join(tempDir, "create-user.sql");
 writeFileSync(tempFile, insertSql, "utf8");
 
-const target = isRemote ? "--remote" : "--local";
+const persistDir = process.env.PERSIST_DIR;
+const target = isRemote
+  ? "--remote"
+  : `--local${persistDir ? ` --persist-to "${persistDir}"` : ""}`;
 console.log(
   `Creating ${userRow.role} user "${userRow.username}" on ${isRemote ? "REMOTE" : "LOCAL"} database…`
 );

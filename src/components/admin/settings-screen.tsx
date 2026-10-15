@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Check, Languages, Palette, Save, ToggleRight, Trash2, Upload } from "lucide-react";
+import { Building2, Check, Crown, Languages, Palette, Save, ToggleRight, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { api, showErrorToast } from "@/lib/api-client";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -20,10 +20,12 @@ import { useAppSettings, useSettingsStore } from "@/stores/settings-store";
 import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { BrandMark } from "@/components/layout/app-shell";
+import { BackupCard, CustomFieldsCard } from "@/components/admin/owner-tools";
 
 // ============================================================
 // SECTION: Settings screen (admin)
@@ -37,7 +39,7 @@ import { BrandMark } from "@/components/layout/app-shell";
 
 const FEATURES: FeatureKey[] = ["displayBoard", "offlineQueue", "installApp", "fullscreenButton"];
 
-export function SettingsScreen() {
+export function SettingsScreen({ isOwner }: { isOwner: boolean }) {
   const t = useT();
   const router = useRouter();
   const saved = useAppSettings();
@@ -150,28 +152,6 @@ export function SettingsScreen() {
 
         <div className="space-y-4">
         {/* ============================================================
-            SECTION: Language
-            ============================================================ */}
-        <Section icon={Languages} title={t("settings.language")}>
-          <Field label={t("settings.languageDefault")} htmlFor="s-lang">
-            <Segmented
-              value={draft.language.default}
-              options={[
-                ["el", "Ελληνικά"],
-                ["en", "English"],
-              ]}
-              onChange={(value) => update("language", { default: value })}
-            />
-          </Field>
-          <ToggleRow
-            label={t("settings.allowSwitch")}
-            hint={t("settings.allowSwitchHint")}
-            checked={draft.language.allowSwitch}
-            onChange={(allowSwitch) => update("language", { allowSwitch })}
-          />
-        </Section>
-
-        {/* ============================================================
             SECTION: Theme
             ============================================================ */}
         <Section icon={Palette} title={t("settings.theme")}>
@@ -191,6 +171,41 @@ export function SettingsScreen() {
       </div>
 
       {/* ============================================================
+          SECTION: Owner area (the server ignores language edits from admins)
+          ============================================================ */}
+      {isOwner && (
+        <section className="mt-6">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
+            <Crown className="h-5 w-5 text-primary" />
+            {t("settings.ownerArea")}
+          </h2>
+          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
+            <Section icon={Languages} title={t("settings.language")}>
+              <Field label={t("settings.languageDefault")} htmlFor="s-lang">
+                <Segmented
+                  value={draft.language.default}
+                  options={[
+                    ["el", "Ελληνικά"],
+                    ["en", "English"],
+                  ]}
+                  onChange={(value) => update("language", { default: value })}
+                />
+              </Field>
+              <ToggleRow
+                label={t("settings.allowSwitch")}
+                hint={t("settings.allowSwitchHint")}
+                checked={draft.language.allowSwitch}
+                onChange={(allowSwitch) => update("language", { allowSwitch })}
+              />
+            </Section>
+            <BackupCard />
+            <CustomFieldsCard />
+            <DangerZone />
+          </div>
+        </section>
+      )}
+
+      {/* ============================================================
           SECTION: Sticky save bar (visible while there are changes)
           ============================================================ */}
       {dirty && (
@@ -208,6 +223,120 @@ export function SettingsScreen() {
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// SECTION: Danger zone (owner only — the server re-checks role + password)
+// ============================================================
+
+type ResetScope = "orders" | "all";
+
+function DangerZone() {
+  const t = useT();
+  const router = useRouter();
+  const [scope, setScope] = useState<ResetScope | null>(null);
+  const [typed, setTyped] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const close = () => {
+    setScope(null);
+    setTyped("");
+    setPassword("");
+  };
+
+  const run = async () => {
+    if (!scope) return;
+    setBusy(true);
+    try {
+      await api.post("/api/system/reset", { scope, password });
+      toast.success(t("danger.done"));
+      close();
+      router.refresh();
+    } catch (error) {
+      showErrorToast(error, t("error.generic"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const actions: [ResetScope, MessageKey, MessageKey][] = [
+    ["orders", "danger.resetOrders", "danger.resetOrdersHint"],
+    ["all", "danger.resetAll", "danger.resetAllHint"],
+  ];
+
+  return (
+    <Card className="space-y-3 border-error/50 p-4">
+      <h2 className="flex items-center gap-2 font-semibold text-error">
+        <TriangleAlert className="h-5 w-5" />
+        {t("danger.title")}
+      </h2>
+      <p className="text-xs text-on-surface-muted">{t("danger.hint")}</p>
+      {actions.map(([value, label, hint]) => (
+        <div
+          key={value}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-container-low px-4 py-3"
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">{t(label)}</span>
+            <span className="block text-xs text-on-surface-muted">{t(hint)}</span>
+          </span>
+          <Button variant="danger" size="sm" onClick={() => setScope(value)}>
+            <Trash2 className="h-4 w-4" />
+            {t(label)}
+          </Button>
+        </div>
+      ))}
+
+      {scope && (
+        <Dialog
+          open
+          onClose={close}
+          title={t(scope === "all" ? "danger.resetAll" : "danger.resetOrders")}
+          footer={
+            <>
+              <Button variant="ghost" onClick={close}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="danger"
+                loading={busy}
+                disabled={typed.trim().toUpperCase() !== "DELETE" || password.length === 0}
+                onClick={run}
+              >
+                {t("danger.run")}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm">
+              {t(scope === "all" ? "danger.resetAllHint" : "danger.resetOrdersHint")}
+            </p>
+            <Field label={t("danger.typeDelete")} htmlFor="d-confirm">
+              <Input
+                id="d-confirm"
+                autoFocus
+                autoCapitalize="characters"
+                autoComplete="off"
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+              />
+            </Field>
+            <Field label={t("danger.password")} htmlFor="d-password">
+              <Input
+                id="d-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </Field>
+          </div>
+        </Dialog>
+      )}
+    </Card>
   );
 }
 

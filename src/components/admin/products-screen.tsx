@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { LoadingArea } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ProductFormDialog } from "@/components/admin/product-form-dialog";
+import { CustomFieldSummary, useCustomFields } from "@/components/custom-fields/custom-field-inputs";
 
 // ============================================================
 // SECTION: Admin products screen
@@ -56,6 +57,7 @@ export function ProductsScreen() {
     ProductWithCategory | null | undefined
   >(undefined);
   const [deleting, setDeleting] = useState<ProductWithCategory | null>(null);
+  const customFields = useCustomFields("products");
 
   // ============================================================
   // SECTION: Mutations
@@ -171,6 +173,7 @@ export function ProductsScreen() {
                     {product.description}
                   </p>
                 )}
+                <CustomFieldSummary fields={customFields} values={product.extra} />
 
                 {/* Actions pinned to the card bottom */}
                 <div className="mt-auto flex gap-2 border-t border-border pt-3">

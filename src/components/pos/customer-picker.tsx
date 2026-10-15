@@ -14,6 +14,12 @@ import { toast } from "@/stores/toast-store";
 import { useCartStore, type CartCustomer } from "@/stores/cart-store";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import {
+  CustomFieldInputs,
+  customFieldsComplete,
+  useCustomFields,
+  type CustomDraft,
+} from "@/components/custom-fields/custom-field-inputs";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/ui/field";
@@ -219,6 +225,9 @@ function NewCustomerDialog({
   const [email, setEmail] = useState("");
   const [comments, setComments] = useState("");
   const [busy, setBusy] = useState(false);
+  const customFields = useCustomFields("customers");
+  const [custom, setCustom] = useState<CustomDraft>({});
+  const canSave = name.trim().length > 0 && customFieldsComplete(customFields, custom);
 
   // Fresh form every time the dialog opens.
   useEffect(() => {
@@ -228,13 +237,14 @@ function NewCustomerDialog({
       setAddress("");
       setEmail("");
       setComments("");
+      setCustom({});
     }
     // initialName is read once per opening on purpose
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const submit = async () => {
-    if (name.trim().length === 0) return;
+    if (!canSave) return;
     setBusy(true);
     try {
       const created = await api.post<Customer>("/api/customers", {
@@ -243,6 +253,7 @@ function NewCustomerDialog({
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
         comments: comments.trim() || undefined,
+        ...(customFields.length > 0 ? { extra: custom } : {}),
       });
       toast.success(t("customer.saved"));
       onCreated({ id: created.id, name: created.name });
@@ -264,7 +275,7 @@ function NewCustomerDialog({
           <Button variant="ghost" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button loading={busy} disabled={name.trim().length === 0} onClick={submit}>
+          <Button loading={busy} disabled={!canSave} onClick={submit}>
             {t("common.save")}
           </Button>
         </>
@@ -312,6 +323,7 @@ function NewCustomerDialog({
             onChange={(event) => setComments(event.target.value)}
           />
         </Field>
+        <CustomFieldInputs fields={customFields} values={custom} onChange={setCustom} />
       </div>
     </Dialog>
   );

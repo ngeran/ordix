@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { asBatch, getDb } from "@/db";
+import { asBatch, getDb, queryInChunks } from "@/db";
 import { orderEvents, orderItems, products } from "@/db/schema";
 import { errorResponse, requireUser } from "@/lib/api-auth";
 import { appendItemsSchema, parseJsonBody } from "@/lib/validation";
@@ -50,10 +50,9 @@ export async function POST(
 
     // -- Load & validate products --
     const productIds = [...new Set(input.items.map((item) => item.productId))];
-    const productRows = await db
-      .select()
-      .from(products)
-      .where(inArray(products.id, productIds));
+    const productRows = await queryInChunks(productIds, (ids) =>
+      db.select().from(products).where(inArray(products.id, ids))
+    );
     const productById = new Map(productRows.map((row) => [row.id, row]));
 
     for (const item of input.items) {
@@ -99,7 +98,8 @@ export async function POST(
 
     await db.batch(
       asBatch([
-        db.insert(orderItems).values(itemValues),
+        // One statement per line: a multi-row insert passes D1's 100-parameter cap at 7 lines.
+        ...itemValues.map((item) => db.insert(orderItems).values(item)),
         db.insert(orderEvents).values({
           id: crypto.randomUUID(),
           orderId,

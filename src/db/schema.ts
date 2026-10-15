@@ -9,6 +9,12 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { USER_ROLES, type UserRole } from "../lib/roles";
+import {
+  CUSTOM_FIELD_ENTITIES,
+  CUSTOM_FIELD_TYPES,
+  type CustomValues,
+} from "../lib/custom-fields";
 
 // ============================================================
 // SECTION: Domain constants (statuses, roles)
@@ -53,9 +59,7 @@ export type OrderItemStatus = (typeof ORDER_ITEM_STATUSES)[number];
 export const PAYMENT_METHODS = ["cash", "card", "transfer"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-/** User roles — `admin` manages catalog/import, `staff` orders. */
-export const USER_ROLES = ["admin", "staff"] as const;
-export type UserRole = (typeof USER_ROLES)[number];
+export { USER_ROLES, type UserRole };
 
 // ============================================================
 // SECTION: Users (credentials auth, role-based access)
@@ -96,6 +100,32 @@ export const settings = sqliteTable("settings", {
 });
 
 // ============================================================
+// SECTION: Custom field definitions (owner → Settings)
+// ============================================================
+
+export const customFields = sqliteTable(
+  "custom_fields",
+  {
+    id: text("id").primaryKey(),
+    entity: text("entity", { enum: CUSTOM_FIELD_ENTITIES }).notNull(),
+    /** Stable JSON key inside each row's `extra` — fixed after creation. */
+    key: text("key").notNull(),
+    labelEn: text("label_en").notNull(),
+    labelEl: text("label_el"),
+    type: text("type", { enum: CUSTOM_FIELD_TYPES }).notNull().default("text"),
+    options: text("options", { mode: "json" }).$type<string[]>(),
+    required: integer("required", { mode: "boolean" }).notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    /** Hidden fields keep their stored values; re-activating shows them again. */
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("custom_fields_entity_key_unique").on(t.entity, t.key)]
+);
+
+// ============================================================
 // SECTION: Customers (every build-to-order order belongs to one)
 // ============================================================
 
@@ -108,6 +138,8 @@ export const customers = sqliteTable(
     phone: text("phone"),
     email: text("email"),
     comments: text("comments"),
+    /** Owner-defined custom field values (see custom_fields). */
+    extra: text("extra", { mode: "json" }).$type<CustomValues>(),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -137,6 +169,8 @@ export const categories = sqliteTable(
     /** Optional Greek name — UI shows it when the Greek locale is active. */
     nameEl: text("name_el"),
     description: text("description"),
+    /** Owner-defined custom field values (see custom_fields). */
+    extra: text("extra", { mode: "json" }).$type<CustomValues>(),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -168,6 +202,8 @@ export const products = sqliteTable(
     barcode: text("barcode"),
     /** Pieces per sealed box (κουτιά ↔ τεμάχια for the calculator). */
     itemsPerBox: integer("items_per_box"),
+    /** Owner-defined custom field values (see custom_fields). */
+    extra: text("extra", { mode: "json" }).$type<CustomValues>(),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -360,6 +396,7 @@ export type User = typeof users.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Product = typeof products.$inferSelect;
+export type CustomField = typeof customFields.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type OrderEvent = typeof orderEvents.$inferSelect;

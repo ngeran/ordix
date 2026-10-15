@@ -14,6 +14,13 @@ import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import {
+  CustomFieldInputs,
+  CustomFieldSummary,
+  customFieldsComplete,
+  useCustomFields,
+  type CustomDraft,
+} from "@/components/custom-fields/custom-field-inputs";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -43,6 +50,7 @@ export function CustomersAdminScreen() {
   const [editing, setEditing] = useState<Customer | null | undefined>(undefined);
   const [deleting, setDeleting] = useState<Customer | null>(null);
   const [busy, setBusy] = useState(false);
+  const customFields = useCustomFields("customers");
 
   const toggleActive = async (customer: Customer, next: boolean) => {
     try {
@@ -131,6 +139,7 @@ export function CustomersAdminScreen() {
                     {customer.address ? ` · ${customer.address}` : ""}
                     {customer.comments ? ` · ${customer.comments}` : ""}
                   </p>
+                  <CustomFieldSummary fields={customFields} values={customer.extra} />
                 </div>
 
                 <Switch
@@ -226,6 +235,9 @@ function CustomerFormDialog({
   const [comments, setComments] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [busy, setBusy] = useState(false);
+  const customFields = useCustomFields("customers");
+  const [custom, setCustom] = useState<CustomDraft>({});
+  const canSave = name.trim().length > 0 && customFieldsComplete(customFields, custom);
 
   useEffect(() => {
     if (customer) {
@@ -235,6 +247,7 @@ function CustomerFormDialog({
       setEmail(customer.email ?? "");
       setComments(customer.comments ?? "");
       setIsActive(customer.isActive);
+      setCustom(customer.extra ?? {});
     } else {
       setName("");
       setAddress("");
@@ -242,11 +255,12 @@ function CustomerFormDialog({
       setEmail("");
       setComments("");
       setIsActive(true);
+      setCustom({});
     }
   }, [customer]);
 
   const submit = async () => {
-    if (name.trim().length === 0) return;
+    if (!canSave) return;
     setBusy(true);
     try {
       const payload = {
@@ -256,6 +270,7 @@ function CustomerFormDialog({
         email: email.trim() || undefined,
         comments: comments.trim() || undefined,
         isActive,
+        ...(customFields.length > 0 ? { extra: custom } : {}),
       };
       if (isEdit) {
         await api.patch(`/api/customers/${customer.id}`, payload);
@@ -282,7 +297,7 @@ function CustomerFormDialog({
           <Button variant="ghost" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button loading={busy} disabled={name.trim().length === 0} onClick={submit}>
+          <Button loading={busy} disabled={!canSave} onClick={submit}>
             {t("common.save")}
           </Button>
         </>
@@ -330,6 +345,7 @@ function CustomerFormDialog({
             onChange={(event) => setComments(event.target.value)}
           />
         </Field>
+        <CustomFieldInputs fields={customFields} values={custom} onChange={setCustom} />
         <div className="flex items-center justify-between rounded-xl bg-surface-container-low px-4 py-3">
           <span className="text-sm font-medium">{t("common.active")}</span>
           <Switch checked={isActive} onChange={setIsActive} aria-label={t("common.active")} />

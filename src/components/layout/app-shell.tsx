@@ -36,6 +36,7 @@ import { SyncIndicator } from "@/components/layout/sync-indicator";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { LocaleToggle } from "@/components/locale-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
+import { hasAdminAccess } from "@/lib/roles";
 import { InstallAppButton, registerServiceWorker } from "@/components/layout/install-pwa";
 import { startViewportTracking } from "@/lib/use-viewport-tracking";
 import { FullscreenToggle } from "@/components/layout/fullscreen-toggle";
@@ -235,7 +236,7 @@ export function AppShell({
     return <>{children}</>;
   }
 
-  const adminNav = user?.role === "admin" ? NAV_ADMIN : [];
+  const adminNav = hasAdminAccess(user?.role) ? NAV_ADMIN : [];
   const { features } = settings;
   const extraNav = NAV_EXTRA.filter(
     (item) => item.href !== "/display" || features.displayBoard

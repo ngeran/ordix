@@ -14,6 +14,14 @@ import { toast } from "@/stores/toast-store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import type { CustomValues } from "@/lib/custom-fields";
+import {
+  CustomFieldInputs,
+  CustomFieldSummary,
+  customFieldsComplete,
+  useCustomFields,
+  type CustomDraft,
+} from "@/components/custom-fields/custom-field-inputs";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -37,6 +45,7 @@ interface CategoryRow {
   sortOrder: number;
   isActive: boolean;
   productCount: number;
+  extra: CustomValues | null;
 }
 
 export function CategoriesScreen() {
@@ -50,6 +59,7 @@ export function CategoriesScreen() {
   const [editing, setEditing] = useState<CategoryRow | null | undefined>(undefined);
   const [deleting, setDeleting] = useState<CategoryRow | null>(null);
   const [busy, setBusy] = useState(false);
+  const customFields = useCustomFields("categories");
 
   // ============================================================
   // SECTION: Reorder (swap with neighbor, then persist full order)
@@ -144,6 +154,7 @@ export function CategoriesScreen() {
                   <p className="truncate text-xs text-on-surface-muted">
                     {category.productCount} {t("common.items")}
                   </p>
+                  <CustomFieldSummary fields={customFields} values={category.extra} />
                 </div>
 
                 <Button variant="secondary" size="sm" className="shrink-0 max-sm:w-10 max-sm:px-0" onClick={() => setEditing(category)} aria-label={t("common.edit")}>
@@ -213,6 +224,9 @@ function CategoryFormDialog({
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [busy, setBusy] = useState(false);
+  const customFields = useCustomFields("categories");
+  const [custom, setCustom] = useState<CustomDraft>({});
+  const canSave = name.trim().length > 0 && customFieldsComplete(customFields, custom);
 
   useEffect(() => {
     if (category) {
@@ -220,16 +234,18 @@ function CategoryFormDialog({
       setNameEl(category.nameEl ?? "");
       setDescription(category.description ?? "");
       setIsActive(category.isActive);
+      setCustom(category.extra ?? {});
     } else {
       setName("");
       setNameEl("");
       setDescription("");
       setIsActive(true);
+      setCustom({});
     }
   }, [category]);
 
   const submit = async () => {
-    if (name.trim().length === 0) return;
+    if (!canSave) return;
     setBusy(true);
     try {
       const payload = {
@@ -237,6 +253,7 @@ function CategoryFormDialog({
         nameEl: nameEl.trim() || undefined,
         description: description.trim() || undefined,
         isActive,
+        ...(customFields.length > 0 ? { extra: custom } : {}),
       };
       if (isEdit) {
         await api.patch(`/api/categories/${category.id}`, payload);
@@ -263,7 +280,7 @@ function CategoryFormDialog({
           <Button variant="ghost" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button loading={busy} disabled={name.trim().length === 0} onClick={submit}>
+          <Button loading={busy} disabled={!canSave} onClick={submit}>
             {t("common.save")}
           </Button>
         </>
@@ -279,6 +296,7 @@ function CategoryFormDialog({
         <Field label={t("products.description")} htmlFor="c-desc">
           <Textarea id="c-desc" value={description} onChange={(event) => setDescription(event.target.value)} />
         </Field>
+        <CustomFieldInputs fields={customFields} values={custom} onChange={setCustom} />
         <div className="flex items-center justify-between rounded-xl bg-surface-container-low px-4 py-3">
           <span className="text-sm font-medium">{t("common.active")}</span>
           <Switch checked={isActive} onChange={setIsActive} aria-label={t("common.active")} />
