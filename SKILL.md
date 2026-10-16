@@ -1,111 +1,89 @@
 ---
 name: ordix
-description: Build, extend, and maintain the Ordix order + inventory management app. Use when working on Ordix, product catalog, stock management, order lifecycle, Cloudflare Pages + D1 deployment, PWA, or adapting Manolis-POS patterns to industrial + general ordering.
+description: Build, extend, and maintain Ordix — the build-to-order order management and production-tracking app for the workshop (Cloudflare Workers + D1, or Docker; PWA; phones/tablets/desktops). Use when working on Ordix: orders, production board, closure, catalog, customers, users, settings, import/export, offline, or deployment.
 ---
 
 # Ordix Development Skill
 
 ## What is Ordix
 
-Ordix is a modern order management and inventory system for mixed product catalogs (food-style items + industrial aluminum components and door/window locking mechanisms). It supports the full lifecycle from order placement through stock deduction, preparation, packing, and courier hand-off with tracking numbers.
+Ordix is a **build-to-order** order management system for a workshop that manufactures aluminum components and door/window locking mechanisms. It covers the full flow: an order taker builds a ticket for a **customer** → production makes each item → the order returns to the department → the department closes it (**Ολοκληρώθηκε**). Every step is audited.
 
-It is designed to run on local networks and sync with Cloudflare D1 online. It is fully installable as a PWA and optimized for phones, tablets, and desktops in any orientation.
+It runs on phones, tablets and desktops (any orientation), installs as a **PWA**, works **offline-first**, and is designed for operators who are **50+ and first-time computer users**: giant-tile Home launcher, 18px base type, ≥44px touch targets, plain YES/NO confirmations, Greek UI by default.
 
 ## Core Architecture Principles
 
-- Extract and improve proven patterns from Manolis-POS rather than inventing new ones.
-- All monetary values stored as integer cents.
-- Draft orders live in Zustand until confirmed.
-- Stock is deducted atomically on order confirmation.
-- Low-stock alerts trigger when `stock_quantity <= min_stock`.
-- Order statuses follow a clear, linear lifecycle with auditability (who/when/reason for voids and cancellations).
-- Prefer polling with backoff or lightweight real-time over heavy WebSocket complexity unless clearly needed.
-- Touch-first UI: minimum 48px interactive targets.
+- **No stock. No prices on products.** Products are pure identifiers: part number, name, category, barcode, description, active. The price of each line is **quoted manually** while taking the order.
+- The **lifecycle is a server-enforced state machine** with a single source of truth: `src/lib/order-status.ts`. Screens import predicates from it; they never hard-code status rules.
+- Completion is **close-only**: `production_complete → completed` is not a transition. The department closes via `POST /api/orders/[id]/close`.
+- Every status mutation is a conditional `UPDATE … WHERE status = <expected>` (409 "changed meanwhile" on 0 rows) and writes an `order_events` row **in the same batch**.
+- Money is integer cents; the quoted price is optional per line and stored as `lineTotalCents`.
+- **First-time users**: giant-tile Home launcher, plain YES/NO confirmations, no prices shown anywhere in the UI.
 
-## Required Tech Stack
+## Lifecycle (server-enforced)
 
-- Next.js (App Router) or equivalent that deploys cleanly to Cloudflare Pages
-- TypeScript strict mode
-- Cloudflare D1 + Drizzle ORM
-- Zustand for client-side cart
-- Tailwind CSS v4
-- NextAuth.js v5 (Credentials) or Cloudflare-compatible auth
-- PWA (manifest + service worker)
-- Zod for validation
+```
+placed (Submitted) ──► in_production ──► production_complete ──► completed (via /close)
+    │ on_hold ⇄ placed / in_production            │                (department closure)
+    └─► cancelled
+```
 
-## Product Schema Essentials
+- Entering `in_production` happens **automatically** when the first item is sent to production (`production_started_at` is stamped then).
+- Handing off (`production_complete`) requires every active item produced — the endpoint 409s with the remaining count otherwise.
+- Closing auto-completes any items the manager didn't individually click through; it can never fail on leftover production states.
+- `placed` has no direct transition to `in_production` — starting the first item does it, so the status never claims work that isn't happening.
+- Legacy stages (`preparing…dispatched`) render old rows but new orders never use them.
 
-Every product must support at minimum:
+Item production states: `pending → in_production → completed` (who/when stamped per line; edits allowed until a line is sent).
 
-- `id`
-- `part_number` (unique, searchable)
-- `name`
-- `description`
-- `image`
-- `stock_quantity`
-- `min_stock` (threshold for alerts)
-- `price` (integer cents)
-- `category_id`
-- `is_active`
+## Product Schema (pure identifiers)
 
-Categories support full CRUD + active/inactive.
+`part_number` (unique), `name`, `description`, `barcode` (optional), `category_id`, `items_per_box` (drives the κουτιά/τεμάχια calculator), `image_url`, `is_active` — plus owner-defined **custom fields** stored in an `extra` JSON column. **No stock, no min_stock, no price columns.** Categories and customers follow the same identifier pattern with their own fields.
 
-## Order Lifecycle (Do Not Change Lightly)
+## Roles
 
-1. Draft (Zustand)
-2. Confirmed / Placed → stock deducted
-3. Preparing
-4. Prepared
-5. Collected / Checked / Boxed
-6. Ready for Courier
-7. Dispatched (tracking number recorded)
-8. Completed
-
-Support item-level void with reason + actor + timestamp. Support appending to open orders.
+`owner` > `admin` > `staff`. Logins are **usernames**, not emails. Staff order, produce and close; admins also manage catalog, users, settings and import/export; the **owner** additionally controls language, backup/restore, custom fields and the danger zone — and is created/assigned **only from the CLI** (`scripts/set-role.ts`). Destructive actions (restore, clear data) need `DELETE` + password.
 
 ## Key Screens
 
-- `/login`
-- Main order screen (`/pos` or `/order`) – product grid + ticket
-- `/orders` – active board + history
-- `/orders/[id]` – detail, status transitions, packing, tracking number
-- `/admin/products` – product CRUD + stock
-- `/admin/categories`
-- `/admin/stock` – overview + low-stock alerts
-- Optional preparation view
+- `/home` — giant-tile launcher (default landing page)
+- `/order` — POS: customer bar, compact part cards, Order Tray with typeable BOX/PCS inputs
+- `/orders` — simplified table dashboard (Live Flow: filters, time-in-queue/production)
+- `/orders/[id]` — detail: stepper, editable pending quantities, timeline
+- `/production` — manager board: per-item ▶ Send / ✔ Done, bulk actions, progress bars
+- `/cashier` — **Department closure**: Returned / Still in production / Closed today
+- `/display` — wall board (read-only)
+- `/admin/*` — Products, Categories, Customers, Users, Settings, Import/Export
+- `/login` — username + password
 
-## Hosting & Sync
+## Stack & Hosting
 
-- Primary target: Cloudflare Pages + D1
-- GitHub → Cloudflare automatic deploys
-- Must also run well on local network with online sync capability
-- Design for optimistic updates and eventual consistency
+Next.js 16 App Router + React 19 + TS strict, deployed via `@opennextjs/cloudflare` to **Cloudflare Workers + D1** (binding `DB`), or the same Worker in **Docker** on-site (`scripts/docker-deploy.sh`). Offline-first: SW-cached reads + IndexedDB outbox for the two queueable writes (place order, append round). Tests: vitest unit + Playwright E2E matrix (`npm run typecheck && npm test && npm run build`).
 
 ## Development Guidelines
 
-1. Reuse Manolis-POS patterns for order flow, daily numbers, voiding, status recomputation, and touch UI.
-2. Generalize “menu items” → “products” and add stock + part_number.
-3. Keep the UI clean, high-contrast, and professional. Support dark mode.
-4. Always validate with Zod on the server.
-5. Prefer integer cents and server-side total recalculation.
-6. Make low-stock alerts highly visible.
-7. Ensure the app is fully usable as a PWA on mobile and tablet.
-8. Write clear seed data that includes both general and industrial aluminum / locking mechanism products.
+1. The lifecycle lives ONLY in `src/lib/order-status.ts`; screens import predicates (`canSendItem`, `canCompleteItem`, `allItemsProduced`, …) instead of comparing statuses.
+2. Status mutations: conditional `UPDATE … WHERE status = <expected>` → 409 "changed meanwhile" on 0 rows; `order_events` in the same `db.batch`.
+3. Money: integer cents end-to-end. IDs: UUID strings via the `uuid()` helper (works on plain-http LAN).
+4. Deleting products/customers with history **deactivates** them (soft delete).
+5. i18n: every key exists in **both** `en` and `el` in `src/lib/i18n.tsx` (TS-enforced); Greek is the default display language.
+6. Migrations are **hand-written, additive** SQL in `drizzle/` and must be listed in `drizzle/meta/_journal.json`. Prefer ADD COLUMN; D1 remote enforces FKs per statement (no table rebuilds). Never write a `Date` object into a raw `sql` template — epoch seconds only.
+7. Offline queueing accepts only place-order and append-round (`isQueueable`); everything else fails fast with `offline.needsConnection`.
+8. Keep it usable for 50+ first-timers: giant tiles, plain words, YES/NO dialogs, no hidden gestures.
 
 ## When Extending Ordix
 
-- New features must respect the existing order lifecycle and stock deduction rules.
-- Any change to schema requires a proper Drizzle migration path for D1.
-- Keep admin actions audited where possible (especially stock adjustments and voids).
-- Test on real mobile viewports and in both orientations.
+- New fields that the code must search/sort on → real column via a hand-written migration (grep the migration ordering rules in README first). Everything else → owner-defined custom fields.
+- New screens follow the shared patterns: `usePolling` (pauses when hidden, backs off), stale-state banner, `showErrorToast`, role-gated via middleware/API helpers.
+- Realtime (Durable Objects) is the designed upgrade path for the 5 s polling — Coordinate with the owner before adding it.
 
 ## Common Pitfalls to Avoid
 
-- Storing prices as floats
-- Allowing stock to go negative without explicit configuration
-- Tiny touch targets
-- Hard-coding restaurant-only language or assumptions
-- Ignoring offline / local-network scenarios
-- Skipping low-stock notifications
+- Adding stock or price fields back to products — deliberately removed
+- Completing an order through the status endpoint — close-only, by the department
+- Hooks below an early return (React #310 — hook-count changes between renders)
+- A hook/`usePolling` call inside a `.map()` (N+1 polling on every tick)
+- Writing a `Date` object into a raw `sql` template (D1 rejects objects — epoch seconds)
+- Email-based logins — logins are usernames now
 
-This skill should be loaded whenever the task involves creating, modifying, or debugging any part of the Ordix application.
+This skill should be loaded whenever the task involves creating, modifying, or debugging any part of Ordix.
