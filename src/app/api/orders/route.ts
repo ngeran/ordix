@@ -59,10 +59,12 @@ export async function GET(request: Request) {
 //
 // Steps:
 //   1. validate payload (Zod) + load the customer + products
-//   2. atomically allocate the daily sequential order number
-//   3. run ONE D1 batch (implicit transaction): order + snapshot
+//   2. replay-safe: an idempotency id from the client dedups
+//      double-taps / retries / outbox replays to ONE order
+//   3. atomically allocate the daily sequential order number
+//   4. run ONE D1 batch (implicit transaction): order + snapshot
 //      items + timeline event
-//   4. return the full order detail
+//   5. return the full order detail
 // All lines start productionStatus = "pending".
 // ============================================================
 
@@ -114,11 +116,27 @@ export async function POST(request: Request) {
       }
     }
 
+    // -- Idempotency: the client mints the order id, so a double-tap,
+    //    a retry or an offline-outbox replay carrying the SAME id
+    //    returns the existing order instead of creating a duplicate.
+    //    Checked BEFORE the daily-number allocation — replays waste
+    //    no numbers. --
+    const orderId = input.id ?? crypto.randomUUID();
+    if (input.id) {
+      const [existing] = await db
+        .select({ id: orders.id })
+        .from(orders)
+        .where(eq(orders.id, input.id))
+        .limit(1);
+      if (existing) {
+        return NextResponse.json(await getOrderDetail(db, existing.id));
+      }
+    }
+
     // -- Daily sequential number (atomic upsert + returning) --
     const numberAllocation = await allocateDailyNumber(db, getBusinessDate());
 
     // -- Assemble the atomic batch --
-    const orderId = crypto.randomUUID();
     const placedAt = new Date();
 
     // Item rows snapshot name + the quoted line price, so tickets
@@ -140,34 +158,43 @@ export async function POST(request: Request) {
       };
     });
 
-    await db.batch([
-      db.insert(orders).values({
-        id: orderId,
-        businessDate: numberAllocation.businessDate,
-        dailyNumber: numberAllocation.dailyNumber,
-        orderNumber: numberAllocation.orderNumber,
-        status: "placed",
-        customerId: customer.id,
-        customerName: customer.name,
-        notes: input.notes ?? null,
-        totalCents: itemValues.reduce(
-          (sum, item) => sum + item.lineTotalCents,
-          0
-        ),
-        createdById: user.id,
-        placedAt,
-      }),
-      // One statement per line: a multi-row insert passes D1's 100-parameter cap at 7 lines.
-      ...itemValues.map((item) => db.insert(orderItems).values(item)),
-      db.insert(orderEvents).values({
-        id: crypto.randomUUID(),
-        orderId,
-        fromStatus: null,
-        toStatus: "placed",
-        userId: user.id,
-        note: `Customer: ${customer.name}`,
-      }),
-    ]);
+    try {
+      await db.batch([
+        db.insert(orders).values({
+          id: orderId,
+          businessDate: numberAllocation.businessDate,
+          dailyNumber: numberAllocation.dailyNumber,
+          orderNumber: numberAllocation.orderNumber,
+          status: "placed",
+          customerId: customer.id,
+          customerName: customer.name,
+          notes: input.notes ?? null,
+          totalCents: itemValues.reduce(
+            (sum, item) => sum + item.lineTotalCents,
+            0
+          ),
+          createdById: user.id,
+          placedAt,
+        }),
+        // One statement per line: a multi-row insert passes D1's 100-parameter cap at 7 lines.
+        ...itemValues.map((item) => db.insert(orderItems).values(item)),
+        db.insert(orderEvents).values({
+          id: crypto.randomUUID(),
+          orderId,
+          fromStatus: null,
+          toStatus: "placed",
+          userId: user.id,
+          note: `Customer: ${customer.name}`,
+        }),
+      ]);
+    } catch (error) {
+      // Lost a microsecond race against an identical request (same
+      // id): this batch rolled back whole — return the winner's
+      // order instead of a UNIQUE-constraint 500.
+      const detail = await getOrderDetail(db, orderId).catch(() => null);
+      if (detail) return NextResponse.json(detail);
+      throw error;
+    }
 
     // -- Return the assembled detail for immediate navigation --
     const detail = await getOrderDetail(db, orderId);

@@ -17,6 +17,17 @@ import { getOrder, getOrderDetail, recalculateOrderTotal } from "@/lib/order-ser
 
 const APPENDABLE_STATUSES = ["placed", "in_production", "on_hold"];
 
+/** How many of these client-minted line ids already exist (chunked — D1 binds ≤100 params). */
+async function countExistingLines(
+  db: Awaited<ReturnType<typeof getDb>>,
+  lineIds: string[]
+): Promise<number> {
+  const rows = await queryInChunks(lineIds, (ids) =>
+    db.select({ id: orderItems.id }).from(orderItems).where(inArray(orderItems.id, ids))
+  );
+  return rows.length;
+}
+
 // ============================================================
 // SECTION: POST /api/orders/[id]/items — append a round
 // ------------------------------------------------------------
@@ -46,6 +57,27 @@ export async function POST(
         { error: `Items cannot be appended to a ${order.status} order` },
         { status: 409 }
       );
+    }
+
+    // -- Replay-safe: the client mints each line's id. If EVERY id in
+    //    this request already exists, the same round landed before
+    //    (double-tap or outbox replay) — return the order as-is. --
+    const lineIds = input.items
+      .map((item) => item.id)
+      .filter((value): value is string => Boolean(value));
+    const allIdsMinted =
+      input.items.length > 0 && lineIds.length === input.items.length;
+    if (allIdsMinted) {
+      const existingCount = await countExistingLines(db, lineIds);
+      if (existingCount === input.items.length) {
+        return NextResponse.json(await getOrderDetail(db, orderId));
+      }
+      if (existingCount > 0) {
+        return NextResponse.json(
+          { error: "Round already partially appended" },
+          { status: 409 }
+        );
+      }
     }
 
     // -- Load & validate products --
@@ -82,7 +114,7 @@ export async function POST(
     const itemValues = input.items.map((item) => {
       const product = productById.get(item.productId)!;
       return {
-        id: crypto.randomUUID(),
+        id: item.id ?? crypto.randomUUID(),
         orderId,
         productId: item.productId,
         quantity: item.quantityBoxes + item.quantityItems,
@@ -96,20 +128,30 @@ export async function POST(
       };
     });
 
-    await db.batch(
-      asBatch([
-        // One statement per line: a multi-row insert passes D1's 100-parameter cap at 7 lines.
-        ...itemValues.map((item) => db.insert(orderItems).values(item)),
-        db.insert(orderEvents).values({
-          id: crypto.randomUUID(),
-          orderId,
-          fromStatus: order.status,
-          toStatus: order.status,
-          userId: user.id,
-          note: `Round ${nextRound} added (${input.items.length} item(s))`,
-        }),
-      ])
-    );
+    try {
+      await db.batch(
+        asBatch([
+          // One statement per line: a multi-row insert passes D1's 100-parameter cap at 7 lines.
+          ...itemValues.map((item) => db.insert(orderItems).values(item)),
+          db.insert(orderEvents).values({
+            id: crypto.randomUUID(),
+            orderId,
+            fromStatus: order.status,
+            toStatus: order.status,
+            userId: user.id,
+            note: `Round ${nextRound} added (${input.items.length} item(s))`,
+          }),
+        ])
+      );
+    } catch (error) {
+      // Lost a microsecond race against an identical request (same
+      // line ids): this batch rolled back — return the winner's
+      // order instead of a UNIQUE-constraint 500.
+      if (allIdsMinted && (await countExistingLines(db, lineIds)) === input.items.length) {
+        return NextResponse.json(await getOrderDetail(db, orderId));
+      }
+      throw error;
+    }
 
     // -- Recompute the stored total from the new item set --
     await recalculateOrderTotal(db, orderId);

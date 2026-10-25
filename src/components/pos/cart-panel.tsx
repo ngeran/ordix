@@ -57,11 +57,16 @@ export function CartPanel({ placing, onSubmit, onPickCustomer, onClose }: CartPa
   );
   const needsCustomer = !appendOrderId && !customer;
 
-  const submitLabel = needsCustomer
-    ? t("customer.select")
-    : appendOrderId
-      ? t("pos.appendRound", { number: appendOrderLabel ?? "" })
-      : t("pos.placeOrder");
+  // While the request is in flight the button says so in plain words
+  // (with the spinner) — an operator must SEE it "took", or they tap
+  // again and double-submit.
+  const submitLabel = placing
+    ? t("pos.saving")
+    : needsCustomer
+      ? t("customer.select")
+      : appendOrderId
+        ? t("pos.appendRound", { number: appendOrderLabel ?? "" })
+        : t("pos.placeOrder");
 
   const confirmTitle = appendOrderId ? t("pos.confirmAppendTitle") : t("pos.confirmPlaceTitle");
   const confirmBody = appendOrderId

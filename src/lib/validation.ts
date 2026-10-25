@@ -145,6 +145,11 @@ export const orderItemInputSchema = z
     quantityItems: z.coerce.number().int().min(0).max(100_000).default(0),
     /** Quoted price for the whole line, in integer cents. */
     linePriceCents: z.coerce.number().int().min(0).max(100_000_000).default(0),
+    /**
+     * Client-minted line id (append rounds): lets the server detect a
+     * replayed round — identical ids mean the round already landed.
+     */
+    id: uuid.optional(),
     note: optionalText,
   })
   .refine(
@@ -154,6 +159,13 @@ export const orderItemInputSchema = z
 
 /** Body of POST /api/orders — placing a new order from the cart. */
 export const placeOrderSchema = z.object({
+  /**
+   * Idempotency key: the CLIENT mints the order id before the first
+   * request leaves. A double-tap, a retry or an offline-outbox replay
+   * all carry the SAME id, and the server collapses them into the one
+   * order instead of creating duplicates.
+   */
+  id: uuid.optional(),
   /** Build-to-order: every order belongs to a customer. */
   customerId: uuid,
   notes: optionalText,

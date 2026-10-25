@@ -4,12 +4,13 @@
 // SECTION: Imports
 // ============================================================
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronRight, ReceiptText, UserRound, X } from "lucide-react";
 import { api, showErrorToast } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
 import { useT } from "@/lib/i18n";
+import { uuid } from "@/lib/uuid";
 import { useCartStore } from "@/stores/cart-store";
 import { toast } from "@/stores/toast-store";
 import type { Category } from "@/db/schema";
@@ -83,9 +84,15 @@ export function PosScreen() {
   // SECTION: Place order / append round
   // ============================================================
 
+  // Synchronous double-submit lock. `placing` state is read from the
+  // render's closure, so two rapid taps can both pass an `if (placing)`
+  // guard before React re-renders; a ref is set and read in the same
+  // tick and cannot race.
+  const submittingRef = useRef(false);
+
   const submitTicket = async () => {
     // 0/0 lines are drafts — never submitted.
-    if (filled.length === 0 || placing) return;
+    if (filled.length === 0 || submittingRef.current) return;
 
     if (!appendOrderId && !customer) {
       toast.warning(t("customer.required"));
@@ -93,11 +100,20 @@ export function PosScreen() {
       return;
     }
 
+    submittingRef.current = true;
     setPlacing(true);
     try {
+      // Minted HERE, before the first byte leaves: the same id rides
+      // the request, any retry and an offline-outbox replay — the
+      // server collapses all of them into ONE order.
+      const orderId = uuid();
       const payload = {
         notes: useCartStore.getState().notes ?? undefined,
+        // One client-minted id per line: on the create path the order
+        // id already guards replays (line ids are ignored there); on
+        // the append path they make an outbox replay a no-op.
         items: filled.map((item) => ({
+          id: uuid(),
           productId: item.productId,
           quantityBoxes: item.quantityBoxes,
           quantityItems: item.quantityItems,
@@ -116,6 +132,7 @@ export function PosScreen() {
       } else {
         const created = await api.post<OrderDetail>("/api/orders", {
           ...payload,
+          id: orderId,
           customerId: customer!.id,
         });
         toast.success(t("pos.orderPlaced", { number: created.orderNumber }));
@@ -125,6 +142,7 @@ export function PosScreen() {
     } catch (error) {
       showErrorToast(error, t("error.generic"));
     } finally {
+      submittingRef.current = false;
       setPlacing(false);
     }
   };
